@@ -7,6 +7,260 @@
 
 ---
 
+## [2025-11-05 20:30] timm Framework 구현 및 Checkpoint 경로 통일
+
+### 논의 주제
+- timm 학습 프레임워크 전체 구현 완료
+- Checkpoint 저장 경로 YOLO와 통일
+- 추론 API 에러 수정
+- num_classes 자동 감지 구현
+
+### 주요 결정사항
+
+#### 1. Checkpoint 저장 경로 통일 (YOLO 구조 채택)
+- **문제**: timm과 YOLO의 checkpoint 경로 구조가 달랐음
+  - YOLO: `{output_dir}/job_{job_id}/weights/best.pt`
+  - timm (기존): `{output_dir}/best.pt`
+- **원인**: YOLO는 자체 `train()` 오버라이드, timm은 base.py 공통 메소드 사용
+- **해결**:
+  ```python
+  # base.py:1406 - 공통 train() 메소드에서 checkpoint_dir 설정
+  checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+  callbacks.on_train_end(final_metrics, checkpoint_dir=checkpoint_dir)
+
+  # timm_adapter.py:903 - save_checkpoint에서 동일 구조 사용
+  checkpoint_dir = os.path.join(self.output_dir, f"job_{self.job_id}", "weights")
+  ```
+- **결과**:
+  - R2 경로: `checkpoints/projects/{project_id}/jobs/{job_id}/best.pt`
+  - Test job: `checkpoints/test-jobs/job_{job_id}/best.pt`
+
+#### 2. Checkpoint 업로드 전략 (YOLO 방식 채택)
+- **정책**: 학습 완료 시점에 best.pt + last.pt만 업로드
+- **구현**:
+  ```python
+  # 학습 중
+  - last.pt 매 epoch 로컬 저장
+  - best.pt 개선 시 로컬 저장
+  - R2 업로드 안함 (per-epoch 업로드 제거)
+
+  # 학습 완료
+  - on_train_end()에서 best.pt, last.pt R2 업로드
+  - DB에 R2 경로 기록
+  ```
+- **장점**:
+  - 학습 속도 영향 없음
+  - 비용 효율적 (~$0.60/month for 1000 jobs)
+  - 충분함 (추론 + 재학습)
+
+#### 3. 추론 API 에러 수정
+- **문제**: Checkpoint 로드 시 classifier 키 불일치
+  ```
+  RuntimeError: Error(s) in loading state_dict for EfficientNet:
+  Unexpected key(s) in state_dict: "classifier.weight", "classifier.bias"
+  ```
+- **원인**: 학습 시 classifier 구조 변경, checkpoint는 변경 전 구조
+- **해결**: `strict=False` 사용 + `weights_only=False` 추가
+  ```python
+  # timm_adapter.py:965-985
+  checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+
+  missing_keys, unexpected_keys = self.model.load_state_dict(
+      checkpoint['model_state_dict'], strict=False
+  )
+  print(f"[CHECKPOINT] Missing keys: {missing_keys}")
+  print(f"[CHECKPOINT] Unexpected keys: {unexpected_keys}")
+  ```
+
+#### 4. num_classes 자동 감지 (Training Service에서 처리)
+- **문제**: Backend에서 num_classes를 미리 계산해야 했음
+- **해결**: Training Service에서 dataset 로드 시 자동 감지
+  ```python
+  # train.py:234-243 - Force auto-detection for classification
+  if task_type == 'image_classification' and dataset_format in ['dice', 'imagefolder']:
+      if args.num_classes and args.num_classes != 10:
+          print(f"[WARNING] num_classes={args.num_classes} provided, but will auto-detect")
+          final_num_classes = None  # Force auto-detection
+
+  # timm_adapter.py:339-355 - Auto-detect from dataset
+  if self.model_config.num_classes is None:
+      print("[INFO] Loading dataset to auto-detect num_classes...")
+      self.prepare_dataset()
+      if hasattr(self.train_loader.dataset, 'classes'):
+          self.model_config.num_classes = len(self.train_loader.dataset.classes)
+  ```
+- **장점**: Backend 부담 감소, Training Service 독립성 증가
+
+### 구현 내용
+
+#### 1. Platform DICE Format 지원
+**`converters/dice_split_generator.py`** (새 파일):
+- DICE Format → train/val split 생성 (text-file 기반)
+- Stratified split 알고리즘 (클래스 불균형 방지)
+- Platform 표준 구조 사용:
+  ```python
+  # annotations.json at root level
+  {
+    "classes": [{"id": 0, "name": "cat"}, ...],
+    "images": [{
+      "file_name": "images/000001.JPEG",
+      "annotation": {"class_id": 0, "class_name": "cat"}
+    }]
+  }
+  ```
+
+#### 2. Classifier 자동 교체
+**`timm_adapter.py:357-433`**:
+- ImageNet pretrained 모델 (1000 classes) → Custom classes 자동 변경
+- 2단계 접근:
+  ```python
+  # Method 1: reset_classifier (선호)
+  if hasattr(self.model, 'reset_classifier'):
+      self.model.reset_classifier(self.model_config.num_classes)
+
+  # Method 2: Direct replacement (fallback)
+  if hasattr(self.model, 'get_classifier'):
+      old_classifier = self.model.get_classifier()
+      in_features = old_classifier.in_features
+      new_classifier = nn.Linear(in_features, self.model_config.num_classes)
+      setattr(self.model, 'fc', new_classifier)
+  ```
+
+#### 3. Validation Metrics 계산
+**`validators/metrics.py`** (새 파일):
+- Task-agnostic validation metrics calculator
+- Classification metrics:
+  - Accuracy, Precision, Recall, F1-Score
+  - Top-5 Accuracy
+  - Per-class metrics
+  - Confusion matrix
+- Detection/Segmentation/Pose metrics (stub)
+
+#### 4. Checkpoint 경로 통일
+**변경 파일 (4개)**:
+- `platform_sdk/base.py:8` - `import os` 추가
+- `platform_sdk/base.py:1406` - checkpoint_dir 설정
+- `timm_adapter.py:903` - YOLO 구조 채택
+- `timm_adapter.py:835` - validation에서 경로 수정
+
+### 테스트 결과
+
+#### Job #21 (cls-imagenet-10)
+- **Dataset**: 10 classes, DICE format
+- **Model**: tf_efficientnetv2_s.in1k (timm)
+- **Training**:
+  - 5 epochs 완료
+  - Train Loss: 0.0002 (수렴)
+  - Val Accuracy: 40.0%
+  - Best Val Accuracy: 40.0%
+- **Checkpoint**:
+  - ✅ best.pt 업로드: `r2://vision-platform-prod/checkpoints/test-jobs/job_21/best.pt`
+  - ✅ last.pt 업로드: `r2://vision-platform-prod/checkpoints/test-jobs/job_21/last.pt`
+  - ✅ DB 업데이트 성공 (2 checkpoint paths)
+
+#### Project ID 이슈
+- **발견**: job_id=21의 project_id가 NULL
+- **원인**: Frontend에서 job 생성 시 project_id 전달 안됨
+- **코드 검증**:
+  - ✅ Backend → Training Service: project_id 전달 (training_manager.py:125)
+  - ✅ Training Service → train.py: `--project_id` 인자 (api_server.py:130-132)
+  - ✅ upload_checkpoint: conditional path logic (storage.py:591-595)
+- **결론**: 코드는 올바름, DB 레코드에 project_id=NULL이 원인
+
+### 다음 단계
+
+#### Immediate (완료 예정)
+- [x] timm framework 구현
+- [x] Checkpoint 경로 통일
+- [x] 추론 API 에러 수정
+- [x] num_classes 자동 감지
+- [ ] **추론 API 전체 테스트** (다음 우선순위)
+
+#### Future Enhancements
+- [ ] timm 모델 확장 (ResNet-18, ResNet-34, ViT 등)
+- [ ] Advanced config 지원 (optimizer, scheduler, augmentation)
+- [ ] Mixed precision training
+- [ ] Gradient clipping
+
+### 관련 문서
+- **이전 세션**: [Checkpoint 관리 정책](../CONVERSATION_LOG.md#2025-11-05-1445-checkpoint-관리-정책-및-r2-업로드-전략-수립) (2025-11-05)
+- **DICE Format**: [Platform Dataset Format](../datasets/PLATFORM_DATASET_FORMAT.md)
+- **Adapter 설계**: [Adapter Design](../trainer/ADAPTER_DESIGN.md)
+
+### 핵심 통찰 (Key Insights)
+
+#### 1. Why Different? (timm vs YOLO)
+- **YOLO**: 독자적 train() 구현 → checkpoint_dir 직접 설정
+- **timm**: base.py 공통 train() 사용 → checkpoint_dir이 누락됨
+- **해결**: base.py에 checkpoint_dir 설정 추가 → 모든 framework 통일
+
+#### 2. Per-Epoch Upload의 문제
+- **비용**: 50배 비쌈 ($30 vs $0.60/month)
+- **성능**: 학습 속도 저하 (I/O blocking)
+- **필요성**: 낮음 (best + last면 충분)
+
+#### 3. Strict Loading의 Trade-off
+- **strict=True**: 안전하지만 유연성 낮음 (classifier 변경 시 실패)
+- **strict=False**: 유연하지만 위험 (missing keys 무시)
+- **Best practice**: strict=False + logging으로 검증
+
+#### 4. num_classes Auto-Detection
+- **Backend 부담 감소**: DB 쿼리, 파일 파싱 불필요
+- **Training Service 독립성**: 자체적으로 dataset 분석
+- **정확성 향상**: 실제 데이터에서 직접 감지
+
+### 기술 노트
+
+#### Checkpoint Path Convention (Unified)
+```
+With project_id:
+  Local:  {output_dir}/job_{job_id}/weights/best.pt
+  R2:     checkpoints/projects/{project_id}/jobs/{job_id}/best.pt
+
+Without project_id (test jobs):
+  Local:  {output_dir}/job_{job_id}/weights/best.pt
+  R2:     checkpoints/test-jobs/job_{job_id}/best.pt
+```
+
+#### Train Loop Architecture
+```
+base.py (공통):
+  ├── train()                    # 공통 train loop
+  │   ├── for epoch in epochs:
+  │   │   ├── train_epoch()     # adapter 구현
+  │   │   ├── validate()        # adapter 구현
+  │   │   └── save_checkpoint() # adapter 구현
+  │   └── on_train_end()        # upload checkpoints to R2
+
+ultralytics_adapter.py:
+  └── train()                    # 오버라이드 (YOLO API 사용)
+      └── model.train()          # YOLO 내부 train loop
+          └── on_train_end()     # upload checkpoints to R2
+
+timm_adapter.py:
+  ├── train_epoch()              # PyTorch train loop
+  ├── validate()                 # Custom validation
+  └── save_checkpoint()          # Local save (best.pt, last.pt)
+```
+
+#### DICE Split File Format
+```
+# splits/train.txt
+images/000001.JPEG 0
+images/000003.JPEG 1
+images/000005.JPEG 0
+
+# splits/val.txt
+images/000002.JPEG 0
+images/000004.JPEG 1
+
+# splits/classes.txt
+cat
+dog
+```
+
+---
+
 ## [2025-11-05 14:45] Checkpoint 관리 정책 및 R2 업로드 전략 수립
 
 ### 논의 주제
