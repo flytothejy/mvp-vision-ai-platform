@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 97% (218/225 tasks)
-**최종 업데이트**: 2025-11-20 (Environment Variables Update)
+**총 진행률**: 98% (223/230 tasks)
+**최종 업데이트**: 2025-11-21 (Redis Integration - Phase 5)
 
 ---
 
@@ -80,7 +80,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 - [x] WebSocket Manager 구현 (broadcast, job/session subscription)
 - [x] Job 상태 변경 시 WebSocket broadcast
 - [x] Export job 상태 변경 시 WebSocket broadcast
-- [ ] Redis Pub/Sub 연동 (다중 인스턴스 지원) - 단일 인스턴스에서는 불필요
+- [x] Redis 통합 (RedisManager + Session Store) - Phase 5 완료, Pub/Sub는 필요시 추가
 
 **Frontend**:
 - [x] WebSocket 연결 관리 훅 (`useTrainingMonitor`)
