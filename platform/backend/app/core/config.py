@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # If not set, will use local SQLite in __init__
     DATABASE_URL: Optional[str] = None
 
+    # Redis (Phase 5: Multi-backend state management)
+    # If not set, will default to localhost in main.py
+    REDIS_URL: Optional[str] = "redis://localhost:6379/0"
+
     # LLM
     GOOGLE_API_KEY: str
     LLM_MODEL: str = "gemini-2.0-flash-exp"

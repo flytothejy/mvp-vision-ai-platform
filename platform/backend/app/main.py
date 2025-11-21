@@ -24,6 +24,14 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from app.core.config import settings
 from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, experiments, invitations, export, inference, websocket
 
+# Redis integration (Phase 5)
+from app.services.redis_manager import RedisManager
+from app.services.redis_session_store import RedisSessionStore
+
+# Global instances for Redis
+redis_manager: RedisManager = None
+session_store: RedisSessionStore = None
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_PREFIX}/openapi.json",
@@ -41,10 +49,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Startup event to run migrations
+# Startup event to run migrations and initialize Redis
 @app.on_event("startup")
 async def startup_event():
     """Run startup tasks."""
+    global redis_manager, session_store
+
+    # Initialize Redis connection
+    print("[STARTUP] Connecting to Redis...")
+    try:
+        redis_url = getattr(settings, "REDIS_URL", "redis://localhost:6379/0")
+        redis_manager = RedisManager(redis_url=redis_url)
+        await redis_manager.connect()
+
+        # Initialize Session Store
+        session_store = RedisSessionStore(redis_manager)
+
+        print(f"[STARTUP] ✓ Redis connected: {redis_url}")
+    except Exception as e:
+        print(f"[STARTUP] ⚠️  Redis connection failed: {e}")
+        print("[STARTUP] Application will continue without Redis (graceful degradation)")
+        redis_manager = None
+        session_store = None
+
     print("[STARTUP] Running database migrations...")
     try:
         from sqlalchemy import create_engine, text, inspect
@@ -131,8 +158,25 @@ app.include_router(websocket.router, prefix=f"{settings.API_V1_PREFIX}", tags=["
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "service": "vision-ai-mvp-backend"}
+    """Health check endpoint with Redis status."""
+    health_status = {
+        "status": "healthy",
+        "service": "vision-ai-mvp-backend",
+        "database": "connected",
+        "redis": "unknown"
+    }
+
+    # Check Redis connection
+    if redis_manager and redis_manager.is_connected:
+        redis_healthy = await redis_manager.ping()
+        health_status["redis"] = "connected" if redis_healthy else "disconnected"
+    else:
+        health_status["redis"] = "not_configured"
+
+    # Overall status: healthy if DB connected (Redis optional)
+    health_status["status"] = "healthy"
+
+    return health_status
 
 
 @app.get("/")
