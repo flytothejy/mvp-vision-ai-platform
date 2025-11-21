@@ -122,3 +122,24 @@ def sample_image_batch(tmp_path):
 def api_url():
     """Base API URL for E2E tests."""
     return os.getenv("API_URL", "http://localhost:8000/api/v1")
+
+
+@pytest.fixture(scope="function")
+async def redis_manager():
+    """Create a RedisManager instance for testing.
+
+    Uses Redis DB 15 for tests (separate from production).
+    Flushes the test database before and after each test.
+    """
+    from app.services.redis_manager import RedisManager
+
+    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/15")
+    manager = RedisManager(redis_url=redis_url)
+
+    try:
+        await manager.connect()
+        await manager.flushdb()  # Clean before test
+        yield manager
+    finally:
+        await manager.flushdb()  # Clean after test
+        await manager.close()
