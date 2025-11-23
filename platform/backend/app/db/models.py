@@ -140,7 +140,12 @@ class User(Base):
     bio = Column(Text, nullable=True)
 
     # Role and permissions
-    system_role = Column(SQLEnum(UserRole), nullable=False, default=UserRole.GUEST, index=True)
+    system_role = Column(
+        SQLEnum(UserRole, values_callable=lambda obj: [e.value for e in obj]),
+        nullable=False,
+        default=UserRole.GUEST,
+        index=True
+    )
     is_active = Column(Boolean, nullable=False, default=True)
 
     # Avatar
@@ -165,7 +170,8 @@ class User(Base):
 
     def can_create_project(self) -> bool:
         """Check if user can create a new project"""
-        if self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ENGINEER_II, UserRole.ENGINEER_I]:
+        if self.system_role in [UserRole.ADMIN, UserRole.MANAGER,
+                                UserRole.ADVANCED_ENGINEER, UserRole.STANDARD_ENGINEER]:
             return True
 
         if self.system_role == UserRole.GUEST:
@@ -176,7 +182,8 @@ class User(Base):
 
     def can_create_dataset(self) -> bool:
         """Check if user can create a new dataset"""
-        if self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ENGINEER_II, UserRole.ENGINEER_I]:
+        if self.system_role in [UserRole.ADMIN, UserRole.MANAGER,
+                                UserRole.ADVANCED_ENGINEER, UserRole.STANDARD_ENGINEER]:
             return True
 
         if self.system_role == UserRole.GUEST:
@@ -192,14 +199,14 @@ class User(Base):
             return True
 
         if self.system_role == UserRole.MANAGER:
-            # Manager can grant GUEST, ENGINEER_I, ENGINEER_II
-            return target_role in [UserRole.GUEST, UserRole.ENGINEER_I, UserRole.ENGINEER_II]
+            # Manager can grant GUEST, STANDARD_ENGINEER, ADVANCED_ENGINEER
+            return target_role in [UserRole.GUEST, UserRole.STANDARD_ENGINEER, UserRole.ADVANCED_ENGINEER]
 
         return False
 
     def has_advanced_features(self) -> bool:
         """Check if user can access advanced training features"""
-        return self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ENGINEER_II]
+        return self.system_role in [UserRole.ADMIN, UserRole.MANAGER, UserRole.ADVANCED_ENGINEER]
 
 
 class ProjectMember(Base):
