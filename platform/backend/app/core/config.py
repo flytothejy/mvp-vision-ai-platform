@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     # If not set, will use local SQLite in __init__
     DATABASE_URL: Optional[str] = None
 
+    # Shared User Database (Phase 11: Microservice Separation)
+    # Shared between Platform and Labeler for user authentication
+    # If not set, will use separate SQLite in __init__
+    USER_DATABASE_URL: Optional[str] = None
+
     # Redis (Phase 5: Multi-backend state management)
     # If not set, will default to localhost in main.py
     REDIS_URL: Optional[str] = "redis://localhost:6379/0"
@@ -83,6 +88,32 @@ class Settings(BaseSettings):
         else:
             # Unknown database URL format
             print(f"[CONFIG] Using database URL: {self.DATABASE_URL}")
+
+        # Handle USER_DATABASE_URL (Phase 11: Shared User DB)
+        if not self.USER_DATABASE_URL:
+            # No USER_DATABASE_URL set - use local SQLite (Tier 1)
+            # Windows: C:\temp\shared_users.db
+            # Linux/Mac: /tmp/shared_users.db
+            import platform
+            if platform.system() == 'Windows':
+                user_db_path = Path('C:/temp/shared_users.db')
+            else:
+                user_db_path = Path('/tmp/shared_users.db')
+
+            self.USER_DATABASE_URL = f'sqlite:///{user_db_path}'
+            print(f"[CONFIG] Using shared SQLite User DB (Tier 1): {user_db_path}")
+        elif self.USER_DATABASE_URL.startswith('sqlite:///./'):
+            # Relative SQLite path - convert to absolute
+            rel_path = self.USER_DATABASE_URL.replace('sqlite:///./', '')
+            abs_path = project_root / rel_path
+            self.USER_DATABASE_URL = f'sqlite:///{abs_path}'
+            print(f"[CONFIG] Using shared SQLite User DB: {abs_path}")
+        elif 'postgresql' in self.USER_DATABASE_URL or 'postgres' in self.USER_DATABASE_URL:
+            # PostgreSQL URL (Tier 2: Railway or Tier 3: K8s)
+            masked_url = self.USER_DATABASE_URL.split('@')[0].split(':')[0] + ':***@' + self.USER_DATABASE_URL.split('@')[1] if '@' in self.USER_DATABASE_URL else self.USER_DATABASE_URL
+            print(f"[CONFIG] Using shared PostgreSQL User DB: {masked_url}")
+        else:
+            print(f"[CONFIG] Using shared User DB URL: {self.USER_DATABASE_URL}")
 
     # Training Service URLs (DEPRECATED - now using subprocess execution)
     # These URLs are kept for backward compatibility but are not actively used

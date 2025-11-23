@@ -8,7 +8,7 @@ from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
-from app.db.database import get_db
+from app.db.database import get_db, get_user_db
 from app.db import models
 
 # OAuth2 scheme for token extraction
@@ -17,14 +17,16 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/auth/login")
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
-    db: Session = Depends(get_db)
+    user_db: Session = Depends(get_user_db)
 ) -> models.User:
     """
     Get the current authenticated user from JWT token.
 
+    Phase 11: Uses Shared User DB for authentication.
+
     Args:
         token: JWT access token from Authorization header
-        db: Database session
+        user_db: Shared User database session
 
     Returns:
         Current user object
@@ -57,7 +59,7 @@ def get_current_user(
     except Exception as e:
         raise credentials_exception
 
-    user = db.query(models.User).filter(models.User.id == user_id).first()
+    user = user_db.query(models.User).filter(models.User.id == user_id).first()
     if user is None:
         raise credentials_exception
 

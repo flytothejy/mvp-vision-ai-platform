@@ -13,7 +13,7 @@ from app.core.security import (
     create_refresh_token,
     decode_token
 )
-from app.db.database import get_db
+from app.db.database import get_user_db
 from app.db import models
 from app.schemas import user as user_schemas
 from app.utils.dependencies import get_current_user
@@ -104,7 +104,7 @@ def find_or_create_organization(
 @router.post("/register", response_model=user_schemas.UserResponse, status_code=status.HTTP_201_CREATED)
 def register(
     user_in: user_schemas.UserCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_user_db)
 ):
     """
     Register a new user.
@@ -166,7 +166,7 @@ def register(
 @router.post("/login", response_model=user_schemas.Token)
 def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_user_db)
 ):
     """
     Login with email and password.
@@ -217,7 +217,7 @@ def login(
 @router.post("/refresh", response_model=user_schemas.Token)
 def refresh_token(
     refresh_token: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_user_db)
 ):
     """
     Refresh access token using refresh token.
@@ -294,7 +294,7 @@ def get_current_user_info(
 def update_current_user(
     user_update: user_schemas.UserUpdate,
     current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_user_db)
 ):
     """
     Update current user information.
@@ -357,7 +357,7 @@ def logout():
 @router.post("/forgot-password")
 def request_password_reset(
     request: user_schemas.ForgotPasswordRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_user_db)
 ):
     """
     Request a password reset email.
@@ -406,7 +406,7 @@ def request_password_reset(
 @router.post("/reset-password")
 def reset_password(
     request: user_schemas.ResetPasswordRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_user_db)
 ):
     """
     Reset password using a reset token.
