@@ -204,23 +204,28 @@ async def start_background_tasks():
     from datetime import datetime, timedelta
     import shutil
 
-    # Initialize database tables
+    # Initialize database tables (Phase 11: Separate Platform and User DBs)
     print("[STARTUP] Initializing database tables...")
-    from app.db.database import init_db, SessionLocal
-    from app.db.models import User
+    from app.db.database import init_db, init_user_db, UserSessionLocal
+    from app.db.models import User, UserRole
     from app.core.security import get_password_hash
 
     try:
+        # Initialize Platform DB (projects, datasets, training jobs, etc.)
         init_db()
-        print("[STARTUP] Database tables initialized successfully")
+        print("[STARTUP] ✓ Platform DB tables initialized")
+
+        # Initialize Shared User DB (users, organizations, invitations, etc.)
+        init_user_db()
+        print("[STARTUP] ✓ Shared User DB tables initialized")
     except Exception as e:
         print(f"[STARTUP] Database initialization error: {e}")
         # Don't crash the app if tables already exist
 
-    # Create default admin user if no users exist
+    # Create default admin user if no users exist (Phase 11: Use User DB)
     try:
-        db = SessionLocal()
-        user_count = db.query(User).count()
+        user_db = UserSessionLocal()
+        user_count = user_db.query(User).count()
 
         if user_count == 0:
             admin_email = "admin@example.com"
@@ -229,16 +234,18 @@ async def start_background_tasks():
             admin_user = User(
                 email=admin_email,
                 hashed_password=get_password_hash(admin_password),
-                full_name="Admin User"
+                full_name="Admin User",
+                system_role=UserRole.ADMIN,
+                is_active=True
             )
-            db.add(admin_user)
-            db.commit()
-            print(f"[STARTUP] Created default admin user: {admin_email} / {admin_password}")
+            user_db.add(admin_user)
+            user_db.commit()
+            print(f"[STARTUP] Created default admin user in Shared User DB: {admin_email} / {admin_password}")
             print("[STARTUP] ⚠️  IMPORTANT: Change the default password after first login!")
         else:
-            print(f"[STARTUP] Found {user_count} existing user(s)")
+            print(f"[STARTUP] Found {user_count} existing user(s) in Shared User DB")
 
-        db.close()
+        user_db.close()
     except Exception as e:
         print(f"[STARTUP] Error creating admin user: {e}")
 
