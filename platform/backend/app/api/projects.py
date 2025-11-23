@@ -371,11 +371,9 @@ def invite_project_member(
         "admin": UserRole.ADMIN,
         "manager": UserRole.MANAGER,
         "advanced_engineer": UserRole.ADVANCED_ENGINEER,
-        "engineer_ii": UserRole.ADVANCED_ENGINEER,  # Legacy support
         "standard_engineer": UserRole.STANDARD_ENGINEER,
-        "engineer_i": UserRole.STANDARD_ENGINEER,  # Legacy support
-        "engineer": UserRole.STANDARD_ENGINEER,
-        "member": UserRole.STANDARD_ENGINEER,
+        "engineer": UserRole.STANDARD_ENGINEER,  # Simplified alias
+        "member": UserRole.STANDARD_ENGINEER,    # Simplified alias
         "viewer": UserRole.GUEST,
         "guest": UserRole.GUEST
     }
