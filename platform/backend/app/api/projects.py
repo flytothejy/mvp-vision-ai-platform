@@ -370,10 +370,12 @@ def invite_project_member(
         "owner": UserRole.ADMIN,
         "admin": UserRole.ADMIN,
         "manager": UserRole.MANAGER,
-        "engineer_ii": UserRole.ENGINEER_II,
-        "engineer_i": UserRole.ENGINEER_I,
-        "engineer": UserRole.ENGINEER_I,
-        "member": UserRole.ENGINEER_I,
+        "advanced_engineer": UserRole.ADVANCED_ENGINEER,
+        "engineer_ii": UserRole.ADVANCED_ENGINEER,  # Legacy support
+        "standard_engineer": UserRole.STANDARD_ENGINEER,
+        "engineer_i": UserRole.STANDARD_ENGINEER,  # Legacy support
+        "engineer": UserRole.STANDARD_ENGINEER,
+        "member": UserRole.STANDARD_ENGINEER,
         "viewer": UserRole.GUEST,
         "guest": UserRole.GUEST
     }
