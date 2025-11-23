@@ -31,7 +31,6 @@ router = APIRouter(prefix="/invitations", tags=["invitations"])
 def get_invitation_info(
     token: str,
     db: Session = Depends(get_db),
-    user_db: Session = Depends(get_user_db),
     user_db: Session = Depends(get_user_db)
 ):
     """
