@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from typing import Optional
 
-from app.db.database import get_db
+from app.db.database import get_db, get_user_db
 from app.db.models import (
     User, Invitation, InvitationType, InvitationStatus, UserRole,
     Organization, Project, Dataset, ProjectMember
@@ -30,14 +30,19 @@ router = APIRouter(prefix="/invitations", tags=["invitations"])
 @router.get("/{token}/info", response_model=InvitationInfoResponse)
 def get_invitation_info(
     token: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user_db: Session = Depends(get_user_db),
+    user_db: Session = Depends(get_user_db)
 ):
     """
     Get invitation information by token (public endpoint).
 
     Used by invitation page to display invitation details before signup.
+
+    Phase 11: Uses 2-DB pattern - User DB for invitations/users/orgs, Platform DB for projects/datasets.
     """
-    invitation = db.query(Invitation).filter(
+    # Get invitation from User DB
+    invitation = user_db.query(Invitation).filter(
         Invitation.token == token,
         Invitation.status == InvitationStatus.PENDING
     ).first()
@@ -48,7 +53,7 @@ def get_invitation_info(
     # Check if expired
     if invitation.is_expired():
         invitation.status = InvitationStatus.EXPIRED
-        db.commit()
+        user_db.commit()
         raise HTTPException(status_code=400, detail="Invitation has expired")
 
     # Get entity name and organization info
@@ -56,22 +61,28 @@ def get_invitation_info(
     organization_name = None
 
     if invitation.invitation_type == InvitationType.ORGANIZATION:
-        org = db.query(Organization).filter(Organization.id == invitation.organization_id).first()
+        # Organization is in User DB
+        org = user_db.query(Organization).filter(Organization.id == invitation.organization_id).first()
         entity_name = org.name if org else "Organization"
 
     elif invitation.invitation_type == InvitationType.PROJECT:
+        # Project is in Platform DB
         project = db.query(Project).filter(Project.id == invitation.project_id).first()
         if project:
             entity_name = project.name
-            if project.organization:
-                organization_name = project.organization.name
+            # Organization is in User DB (if project has organization_id)
+            if hasattr(project, 'organization_id') and project.organization_id:
+                org = user_db.query(Organization).filter(Organization.id == project.organization_id).first()
+                if org:
+                    organization_name = org.name
 
     elif invitation.invitation_type == InvitationType.DATASET:
+        # Dataset is in Platform DB
         dataset = db.query(Dataset).filter(Dataset.id == invitation.dataset_id).first()
         entity_name = dataset.name if dataset else "Dataset"
 
-    # Get inviter name
-    inviter = db.query(User).filter(User.id == invitation.inviter_id).first()
+    # Get inviter name from User DB
+    inviter = user_db.query(User).filter(User.id == invitation.inviter_id).first()
     inviter_name = inviter.full_name or inviter.email if inviter else "Unknown"
 
     return InvitationInfoResponse(
@@ -91,7 +102,8 @@ def get_invitation_info(
 @router.post("/accept", response_model=dict)
 def accept_invitation(
     request: AcceptInvitationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user_db: Session = Depends(get_user_db)
 ):
     """
     Accept an invitation and create user account if needed.
@@ -115,7 +127,7 @@ def accept_invitation(
         raise HTTPException(status_code=400, detail="Invitation has expired")
 
     # Check if user already exists
-    existing_user = db.query(User).filter(User.email == invitation.invitee_email).first()
+    existing_user = user_db.query(User).filter(User.email == invitation.invitee_email).first()
 
     if existing_user:
         # User exists, just add to entity
@@ -196,7 +208,8 @@ def accept_invitation(
 @router.post("/decline")
 def decline_invitation(
     request: DeclineInvitationRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user_db: Session = Depends(get_user_db)
 ):
     """
     Decline an invitation.
@@ -223,6 +236,7 @@ def list_my_invitations(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
     db: Session = Depends(get_db),
+    user_db: Session = Depends(get_user_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
@@ -248,6 +262,7 @@ def list_my_invitations(
 def cancel_invitation(
     invitation_id: int,
     db: Session = Depends(get_db),
+    user_db: Session = Depends(get_user_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """

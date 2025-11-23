@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
 
-from app.db.database import get_db
+from app.db.database import get_db, get_user_db
 from app.db.models import Project, TrainingJob, User, ProjectMember, InvitationType, UserRole
 from app.schemas.project import (
     ProjectCreate,
