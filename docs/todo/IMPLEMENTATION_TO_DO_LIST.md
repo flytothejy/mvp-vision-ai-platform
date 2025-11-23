@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 98% (223/230 tasks)
-**최종 업데이트**: 2025-11-21 (Redis Integration - Phase 5)
+**총 진행률**: 98% (223/253 tasks)
+**최종 업데이트**: 2025-11-23 (Phase 11: Microservice Separation Planning)
 
 ---
 
@@ -22,6 +22,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 8. E2E Testing | 🔄 25% | Inference/Export E2E 완료 | [E2E_TEST_REPORT_20251120.md](reference/E2E_TEST_REPORT_20251120.md) |
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
+| 11. Microservice Separation | ⬜ 0% | 계획 완료, 구현 미시작 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 
 ---
 
@@ -820,6 +821,119 @@ Training 파이프라인 전체 구현을 위한 SDK 개발. Dataset 처리, Con
 - [x] All SDK callbacks 검증
 
 **Test Report**: [TRAINING_SDK_E2E_TEST_REPORT.md](reference/TRAINING_SDK_E2E_TEST_REPORT.md)
+
+---
+
+## Phase 11: Microservice Separation (0%)
+
+프로덕션 환경을 위한 마이크로서비스 아키텍처 전환. User와 Dataset 데이터를 분리하여 Platform과 Labeler 간 공유.
+
+**설계 문서**: [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md)
+
+**핵심 목표**:
+- Shared User Database로 Platform과 Labeler 간 사용자 정보 공유
+- Dataset 관리를 Labeler Backend로 이전
+- Platform은 Labeler Dataset API 호출
+- 별도 User Service Backend 없이 공유 DB 방식 사용
+
+### 11.1 Shared User DB (0%)
+
+**11.1.1 User DB 구축**
+- [ ] Kubernetes에 Shared User DB StatefulSet 배포
+- [ ] Platform DB에서 User 데이터 마이그레이션
+  - [ ] users 테이블 이전
+  - [ ] organizations 테이블 이전
+  - [ ] invitations 테이블 이전
+  - [ ] project_members 테이블 이전
+- [ ] 환경 변수 설정 (USER_DATABASE_URL)
+- [ ] JWT secret 키 양쪽 서비스에서 동일하게 설정
+
+**11.1.2 Labeler Backend 구현**
+- [ ] Labeler에 User 모델 추가 (Platform과 동일)
+- [ ] Labeler에 인증 로직 추가 (auth.py 복사)
+- [ ] Labeler에 인증 엔드포인트 추가 (/login, /register)
+- [ ] Shared User DB 연결 설정
+- [ ] Organization 모델 및 API 추가
+
+**11.1.3 Platform Backend 마이그레이션**
+- [ ] Platform DB 구조 변경
+  - [ ] Foreign key 제약조건 제거 (users 테이블)
+  - [ ] Platform DB에서 users 테이블 제거
+- [ ] Database connection 분리
+  - [ ] Platform DB 연결 (projects, training_jobs)
+  - [ ] Shared User DB 연결 (users, organizations)
+  - [ ] `get_db()` vs `get_user_db()` dependencies
+- [ ] API 엔드포인트 수정
+  - [ ] User 조회 시 Shared User DB 사용
+  - [ ] 모든 API에서 `get_user_db()` dependency 추가
+
+**11.1.4 테스트 & 검증**
+- [ ] 양쪽 서비스 로그인 테스트
+  - [ ] Platform 로그인 → Labeler 토큰 사용
+  - [ ] Labeler 로그인 → Platform 토큰 사용
+- [ ] 데이터 일관성 검증
+  - [ ] Platform에서 사용자 정보 수정 → Labeler 반영 확인
+  - [ ] Labeler에서 사용자 생성 → Platform 조회 확인
+- [ ] 권한 확인 테스트
+  - [ ] Role 변경 시 양쪽 서비스 권한 확인
+
+### 11.2 Dataset Service Migration (0%)
+
+**11.2.1 Labeler Dataset API 확인**
+- [ ] Labeler Backend Dataset API 문서화
+  - [ ] GET /datasets - 데이터셋 목록
+  - [ ] GET /datasets/{id} - 데이터셋 상세
+  - [ ] POST /datasets/{id}/check-permission - 권한 확인
+  - [ ] POST /datasets - 데이터셋 업로드
+- [ ] API 테스트 및 검증
+
+**11.2.2 Platform Labeler Client**
+- [ ] LabelerClient 구현
+  - [ ] `get_datasets()` 메서드
+  - [ ] `get_dataset()` 메서드
+  - [ ] `check_permission()` 메서드
+- [ ] httpx AsyncClient 설정 (timeout 30s)
+- [ ] Error handling 및 retry logic
+
+**11.2.3 Platform Backend 리팩토링**
+- [ ] Dataset API를 프록시로 변경
+  - [ ] GET /datasets → Labeler API 호출
+  - [ ] GET /datasets/{id} → Labeler API 호출
+- [ ] Training Job 생성 시 권한 확인
+  - [ ] `check_permission()` 호출
+  - [ ] 403 에러 처리
+- [ ] Dataset 모델 참조 제거
+  - [ ] TrainingJob.dataset FK 제거
+  - [ ] dataset_id를 String으로 변경
+
+**11.2.4 Database Schema 변경**
+- [ ] Platform DB에서 datasets 테이블 제거
+  - [ ] Foreign key 제약조건 제거
+  - [ ] dataset_snapshots 테이블 제거
+  - [ ] datasets 테이블 제거
+- [ ] TrainingJob 모델 수정
+  - [ ] dataset_id: Column(String(100))
+  - [ ] Relationship 제거
+
+**11.2.5 Frontend 업데이트**
+- [ ] Dataset API 호출 경로 확인 (프록시 사용 시 변경 불필요)
+- [ ] 데이터셋 권한 UI 업데이트
+  - [ ] 공유받은 데이터셋 표시
+  - [ ] 권한 수준 표시 (읽기 전용, 편집 가능)
+- [ ] 직접 업로드 시 Labeler API 호출 (필요 시)
+
+### 11.3 API Gateway (Optional, 0%)
+
+**11.3.1 Kong Gateway 배포**
+- [ ] Kong Gateway Kubernetes 배포
+- [ ] Service discovery 설정
+- [ ] JWT plugin 설정
+- [ ] Rate limiting plugin 설정
+
+**11.3.2 Routing 설정**
+- [ ] User routes (공유 DB 방식에서는 필요 없음)
+- [ ] Platform routes (/api/v1/projects, /api/v1/training)
+- [ ] Labeler routes (/api/v1/datasets, /api/v1/annotations)
 
 ---
 
