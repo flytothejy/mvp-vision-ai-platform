@@ -9,7 +9,7 @@ version: '3.8'
 # - You don't need Kubernetes-specific features
 
 services:
-  # PostgreSQL - Main database
+  # PostgreSQL - Platform database (projects, datasets, training jobs, etc.)
   postgres:
     image: postgres:16
     container_name: platform-postgres-tier0
@@ -25,6 +25,31 @@ services:
       - postgres-data-tier0:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - platform-tier0
+
+  # PostgreSQL - Shared User database (Phase 11: Microservice Separation)
+  # Shared between Platform and Labeler services
+  # Contains: users, organizations, invitations, project_members, sessions
+  postgres-user:
+    image: postgres:16
+    container_name: platform-postgres-user-tier0
+    restart: unless-stopped
+    ports:
+      - "5433:5432"  # Port 5433 on host to avoid conflict
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: users
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=en_US.UTF-8"
+    volumes:
+      - postgres-user-data-tier0:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d users"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -301,6 +326,14 @@ volumes:
       type: none
       o: bind
       device: C:/platform-data/postgres
+
+  # Phase 11: Shared User DB (Platform + Labeler)
+  postgres-user-data-tier0:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: C:/platform-data/postgres-user
 
   redis-data-tier0:
     driver: local

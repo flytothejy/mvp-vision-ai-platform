@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: user-postgres-pvc
+  namespace: platform
+  labels:
+    app: user-postgres
+    tier: database
+    component: user-db
+    phase: phase11-microservice-separation
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi  # Shared User DB: users, organizations, invitations, project_members
+  storageClassName: standard  # Change based on cloud provider (gp3, pd-ssd, etc.)
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: user-postgres-pv
+  labels:
+    app: user-postgres
+    tier: database
+    component: user-db
+    phase: phase11-microservice-separation
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain  # Data preserved even if PVC is deleted
+  storageClassName: standard
+  # For cloud providers, use dynamic provisioning instead of hostPath
+  # hostPath:
+  #   path: /mnt/data/user-postgres
+  #   type: DirectoryOrCreate
