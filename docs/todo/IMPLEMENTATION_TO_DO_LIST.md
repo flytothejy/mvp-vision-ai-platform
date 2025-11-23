@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 98% (223/230 tasks)
-**최종 업데이트**: 2025-11-21 (Redis Integration - Phase 5)
+**총 진행률**: 98% (235/253 tasks)
+**최종 업데이트**: 2025-11-23 (Phase 11 Tier 1: Microservice Separation)
 
 ---
 
@@ -22,6 +22,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 8. E2E Testing | 🔄 25% | Inference/Export E2E 완료 | [E2E_TEST_REPORT_20251120.md](reference/E2E_TEST_REPORT_20251120.md) |
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
+| 11. Microservice Separation | 🔄 33% | Tier 1 완료, Tier 2/3 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 
 ---
 
@@ -820,6 +821,122 @@ Training 파이프라인 전체 구현을 위한 SDK 개발. Dataset 처리, Con
 - [x] All SDK callbacks 검증
 
 **Test Report**: [TRAINING_SDK_E2E_TEST_REPORT.md](reference/TRAINING_SDK_E2E_TEST_REPORT.md)
+
+---
+
+## Phase 11: Microservice Separation (33%)
+
+Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격리 작업. 3-tier 전략으로 단계적 마이그레이션.
+
+**설계 문서**: [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md)
+
+**3-Tier 전략**:
+- **Tier 1 (Local)**: SQLite 기반 Shared User DB (Platform/Labeler 공유)
+- **Tier 2 (Railway)**: PostgreSQL 기반 User DB (프로덕션 프리뷰)
+- **Tier 3 (K8s)**: 완전한 마이크로서비스 분리 (독립 DB, service mesh)
+
+### 11.1 Tier 1: Shared User DB (Local SQLite) ✅
+
+**목표**: 로컬 개발에서 Platform DB와 User DB 분리
+
+**11.1.1 Database Configuration** ✅
+- [x] `USER_DATABASE_URL` 설정 추가 (config.py)
+- [x] 기본값: Windows `C:/temp/shared_users.db`, Linux `/tmp/shared_users.db`
+- [x] `.env.example` 문서화
+
+**11.1.2 Database Refactoring** ✅
+- [x] 2-DB 엔진 분리 (`platform_engine`, `user_engine`)
+- [x] SessionLocal 분리 (`PlatformSessionLocal`, `UserSessionLocal`)
+- [x] `get_db()` - Platform DB dependency
+- [x] `get_user_db()` - Shared User DB dependency
+- [x] Backward compatibility aliases (`SessionLocal`, `engine`)
+- [x] `init_db()`, `init_user_db()` 분리
+
+**11.1.3 Migration Script** ✅
+- [x] `scripts/phase11/init_shared_user_db.py` 생성
+- [x] User 관련 테이블 복사 (users, organizations, invitations, project_members, sessions)
+- [x] FK 관계 순서 고려한 마이그레이션
+
+**11.1.4 API Endpoint Updates** ✅
+- [x] `auth.py` - 모든 엔드포인트 `get_user_db()` 사용
+- [x] `dependencies.py` - `get_current_user()` User DB 조회
+- [x] `admin.py` - 2-DB 패턴, application-level join 구현
+- [x] `invitations.py` - 2-DB 패턴 적용
+- [x] `projects.py` - `get_user_db` import 추가
+- [x] 기타 user 참조 엔드포인트 업데이트
+
+**11.1.5 Platform DB Cleanup** ✅
+- [x] `scripts/phase11/cleanup_platform_db_user_tables.py` 생성
+- [x] 16개 FK 제약조건 제거 (user_id, owner_id, created_by 참조)
+- [x] 5개 User 관련 테이블 삭제 (users, organizations, invitations, project_members, sessions)
+- [x] `init_db()` User 테이블 재생성 방지
+- [x] Admin user 생성을 User DB로 이동
+
+**11.1.6 Backend Startup** ✅
+- [x] `main.py` startup event 업데이트
+- [x] Platform DB, User DB 분리 초기화
+- [x] Admin user 생성을 `UserSessionLocal()` 사용
+- [x] Startup log 메시지 개선
+
+**11.1.7 Bug Fixes** ✅
+- [x] UserRole enum `values_callable` 추가 (value 기반 매핑)
+- [x] SessionLocal import 에러 해결 (backward compatibility)
+- [x] invitations.py duplicate parameter 제거
+- [x] Frontend utility files 복원 (cn.ts, avatarColors.ts, etc.)
+- [x] .gitignore 업데이트 (`!**/frontend/lib/`)
+
+**11.1.8 Testing** ✅
+- [x] Backend 시작 검증
+- [x] Login API 테스트 (POST /api/v1/auth/login)
+- [x] User 조회 테스트 (GET /api/v1/auth/me)
+- [x] Admin 엔드포인트 테스트
+- [x] Platform DB User 테이블 부재 확인
+- [x] User DB 5명 사용자 확인
+
+**완료일**: 2025-11-23
+
+### 11.2 Tier 2: Railway PostgreSQL User DB ⬜
+
+**목표**: Railway 환경에서 프로덕션 프리뷰 테스트
+
+**11.2.1 Railway User DB Setup** ⬜
+- [ ] Railway PostgreSQL 인스턴스 생성 (User DB 전용)
+- [ ] `USER_DATABASE_URL` 환경변수 설정
+- [ ] Platform DB와 User DB 분리 확인
+
+**11.2.2 Migration to Railway** ⬜
+- [ ] User 데이터 Railway PostgreSQL로 마이그레이션
+- [ ] Application-level join 성능 테스트
+- [ ] 프로덕션 동작 검증
+
+**11.2.3 Testing** ⬜
+- [ ] Railway 환경 E2E 테스트
+- [ ] 성능 벤치마크 (application-level join)
+- [ ] 에러 케이스 검증
+
+### 11.3 Tier 3: K8s Microservice Separation ⬜
+
+**목표**: 완전한 마이크로서비스 분리 (Labeler 서비스 독립 실행)
+
+**11.3.1 Labeler Service** ⬜
+- [ ] Labeler 독립 FastAPI 서비스 생성
+- [ ] User DB 연결 (Shared User DB)
+- [ ] Labeler-specific 기능 분리
+
+**11.3.2 Service Mesh** ⬜
+- [ ] Istio/Linkerd 설정
+- [ ] Service discovery
+- [ ] mTLS 인증
+
+**11.3.3 K8s Deployment** ⬜
+- [ ] Platform Service Deployment
+- [ ] Labeler Service Deployment
+- [ ] Shared User DB (PostgreSQL Operator)
+
+**11.3.4 Testing** ⬜
+- [ ] 독립 서비스 동작 검증
+- [ ] Cross-service 인증 테스트
+- [ ] 장애 격리 테스트
 
 ---
 
