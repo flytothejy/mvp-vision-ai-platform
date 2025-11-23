@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 98% (235/253 tasks)
-**최종 업데이트**: 2025-11-23 (Phase 11 Tier 1: Microservice Separation)
+**총 진행률**: 98% (238/253 tasks)
+**최종 업데이트**: 2025-11-24 (Phase 11 Tier 1-2 완료: PostgreSQL User DB 마이그레이션)
 
 ---
 
@@ -22,7 +22,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 8. E2E Testing | 🔄 25% | Inference/Export E2E 완료 | [E2E_TEST_REPORT_20251120.md](reference/E2E_TEST_REPORT_20251120.md) |
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
-| 11. Microservice Separation | 🔄 33% | Tier 1 완료, Tier 2/3 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
+| 11. Microservice Separation | 🔄 67% | Tier 1-2 완료, Tier 3-4 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 
 ---
 
@@ -895,45 +895,92 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 
 **완료일**: 2025-11-23
 
-### 11.2 Tier 2: Railway PostgreSQL User DB ⬜
+### 11.2 Tier 2: Local Docker PostgreSQL User DB ✅
+
+**목표**: 로컬 개발에서 프로덕션 환경과 동일한 PostgreSQL 사용
+
+**11.2.1 Docker Compose Setup** ✅
+- [x] `docker-compose.tier0.yaml`에 postgres-user 서비스 추가 (port 5433)
+- [x] Volume 설정: `C:/platform-data/postgres-user`
+- [x] Health check 구성
+- [x] Platform DB (5432) + User DB (5433) 완전 분리
+
+**11.2.2 Migration Script** ✅
+- [x] `scripts/phase11/migrate_sqlite_to_postgresql.py` 생성
+- [x] SQLite → PostgreSQL 데이터 마이그레이션 (7 rows)
+- [x] FK 순서 고려 (organizations → users → invitations → project_members)
+- [x] Idempotent migration (SQLAlchemy merge 사용)
+- [x] Sessions 테이블 제외 (Phase 5에서 Redis로 마이그레이션됨)
+
+**11.2.3 PostgreSQL Enum Fix** ✅
+- [x] UserRole enum 재생성 (lowercase values)
+- [x] `CREATE TYPE userrole AS ENUM ('admin', 'manager', 'advanced_engineer', 'standard_engineer', 'guest')`
+- [x] Enum value mapping 수정 (`values_callable` 추가)
+
+**11.2.4 Environment Configuration** ✅
+- [x] `.env` 업데이트: `USER_DATABASE_URL=postgresql://admin:devpass@localhost:5433/users`
+- [x] Config documentation 업데이트
+
+**11.2.5 K8s PVC Preparation** ✅
+- [x] `platform-postgres-pvc.yaml` 생성 (10Gi)
+- [x] `user-postgres-pvc.yaml` 생성 (5Gi)
+- [x] Retain reclaim policy 설정
+- [x] K8s PVC 문서화 (backup/resize/monitoring)
+
+**11.2.6 Testing** ✅
+- [x] Backend 시작 검증
+- [x] Login API 테스트 (200 OK)
+- [x] User 조회 테스트 (200 OK)
+- [x] Platform DB에 User 테이블 없음 확인
+- [x] User DB에 5명 사용자 확인
+
+**11.2.7 PR & Merge** ✅
+- [x] PR #38 생성 및 merge
+- [x] Merge conflict 해결
+- [x] main 브랜치 업데이트
+
+**완료일**: 2025-11-24
+
+### 11.3 Tier 3: Railway PostgreSQL User DB ⬜
 
 **목표**: Railway 환경에서 프로덕션 프리뷰 테스트
 
-**11.2.1 Railway User DB Setup** ⬜
+**11.3.1 Railway User DB Setup** ⬜
 - [ ] Railway PostgreSQL 인스턴스 생성 (User DB 전용)
 - [ ] `USER_DATABASE_URL` 환경변수 설정
 - [ ] Platform DB와 User DB 분리 확인
 
-**11.2.2 Migration to Railway** ⬜
+**11.3.2 Migration to Railway** ⬜
 - [ ] User 데이터 Railway PostgreSQL로 마이그레이션
 - [ ] Application-level join 성능 테스트
 - [ ] 프로덕션 동작 검증
 
-**11.2.3 Testing** ⬜
+**11.3.3 Testing** ⬜
 - [ ] Railway 환경 E2E 테스트
 - [ ] 성능 벤치마크 (application-level join)
 - [ ] 에러 케이스 검증
 
-### 11.3 Tier 3: K8s Microservice Separation ⬜
+### 11.4 Tier 4: K8s Microservice Separation ⬜
 
 **목표**: 완전한 마이크로서비스 분리 (Labeler 서비스 독립 실행)
 
-**11.3.1 Labeler Service** ⬜
+**11.4.1 Labeler Service** ⬜
 - [ ] Labeler 독립 FastAPI 서비스 생성
 - [ ] User DB 연결 (Shared User DB)
 - [ ] Labeler-specific 기능 분리
 
-**11.3.2 Service Mesh** ⬜
+**11.4.2 Service Mesh** ⬜
 - [ ] Istio/Linkerd 설정
 - [ ] Service discovery
 - [ ] mTLS 인증
 
-**11.3.3 K8s Deployment** ⬜
+**11.4.3 K8s Deployment** ⬜
 - [ ] Platform Service Deployment
 - [ ] Labeler Service Deployment
 - [ ] Shared User DB (PostgreSQL Operator)
+- [ ] PVC 적용 (platform-postgres-pvc, user-postgres-pvc)
 
-**11.3.4 Testing** ⬜
+**11.4.4 Testing** ⬜
 - [ ] 독립 서비스 동작 검증
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
