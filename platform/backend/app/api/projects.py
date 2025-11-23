@@ -370,10 +370,10 @@ def invite_project_member(
         "owner": UserRole.ADMIN,
         "admin": UserRole.ADMIN,
         "manager": UserRole.MANAGER,
-        "engineer_ii": UserRole.ENGINEER_II,
-        "engineer_i": UserRole.ENGINEER_I,
-        "engineer": UserRole.ENGINEER_I,
-        "member": UserRole.ENGINEER_I,
+        "advanced_engineer": UserRole.ADVANCED_ENGINEER,
+        "standard_engineer": UserRole.STANDARD_ENGINEER,
+        "engineer": UserRole.STANDARD_ENGINEER,  # Simplified alias
+        "member": UserRole.STANDARD_ENGINEER,    # Simplified alias
         "viewer": UserRole.GUEST,
         "guest": UserRole.GUEST
     }
