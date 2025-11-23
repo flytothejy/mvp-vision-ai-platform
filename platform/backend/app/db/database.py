@@ -103,3 +103,12 @@ def init_user_db():
     Phase 11: Call this to set up the shared User DB.
     """
     Base.metadata.create_all(bind=user_engine)
+
+
+# ============================================
+# Backward Compatibility (Phase 11)
+# ============================================
+# Legacy code still references SessionLocal and engine
+# These are aliases to PlatformSessionLocal and platform_engine
+SessionLocal = PlatformSessionLocal
+engine = platform_engine
