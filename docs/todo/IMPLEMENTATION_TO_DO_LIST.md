@@ -23,6 +23,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 67% | Tier 1-2 완료, Tier 3-4 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
+| 12. Backend Refactoring & ClearML | ⬜ 0% | 리팩토링 및 MLOps 플랫폼 전환 | [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md) |
 
 ---
 
@@ -984,6 +985,237 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] 독립 서비스 동작 검증
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
+
+## Phase 12: Backend Refactoring & ClearML Migration (0%)
+
+Backend 코드 품질 개선 및 MLOps 플랫폼을 MLflow에서 ClearML로 전환.
+
+**목표**:
+1. Legacy 코드 제거 및 패턴 통일
+2. ClearML로의 완전한 마이그레이션
+3. 코드베이스 단순화 및 유지보수성 향상
+
+**예상 기간**: 7-8일
+**Reference**: [BACKEND_REFACTORING_PLAN.md](BACKEND_REFACTORING_PLAN.md), [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md)
+
+---
+
+### 12.1 Dead Code 제거 (Day 1) ⬜
+
+**목표**: 사용되지 않는 Training Manager 코드 제거
+
+**12.1.1 Training Manager Cleanup**
+- [ ] `app/utils/training_client.py` 제거 (115 lines)
+- [ ] `app/utils/training_manager.py` 제거
+- [ ] `app/utils/training_manager_k8s.py` 제거
+- [ ] Import 확인 및 정리
+
+**12.1.2 Verification**
+- [ ] 모든 테스트 통과 확인
+- [ ] Backend 정상 실행 확인
+- [ ] Training job 생성/실행 정상 동작
+
+**예상 시간**: 0.5일
+**위험도**: ⭕ Low (사용되지 않는 코드)
+
+---
+
+### 12.2 MLflow → ClearML Migration (Day 2-4) ⬜
+
+**목표**: MLflow를 ClearML로 완전히 교체
+
+**12.2.1 ClearML Setup**
+- [ ] ClearML Server 배포 (Docker Compose / Kind)
+  - [ ] `docker-compose.tier0.yaml`에 clearml-server 추가
+  - [ ] API Server, Web UI, File Server 구성
+  - [ ] PostgreSQL, MongoDB, Elasticsearch 연동
+- [ ] ClearML 환경변수 설정
+  - [ ] `CLEARML_API_HOST`, `CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`
+  - [ ] `CLEARML_API_ACCESS_KEY`, `CLEARML_API_SECRET_KEY`
+- [ ] Kind에 ClearML Helm chart 배포
+
+**12.2.2 ClearML Service 구현**
+- [ ] `app/services/clearml_service.py` 생성
+  - [ ] Task 생성/조회/업데이트
+  - [ ] Metrics 로깅
+  - [ ] Artifacts 업로드
+  - [ ] Experiment/Project 관리
+- [ ] TrainingJob ↔ ClearML Task 매핑
+  - [ ] `clearml_task_id` 필드 추가
+  - [ ] Task 자동 생성 로직
+  - [ ] Status 동기화
+
+**12.2.3 Backend API Updates**
+- [ ] `training.py` - MLflowService → ClearMLService 교체
+  - [ ] `get_mlflow_client()` 제거 (4 locations)
+  - [ ] `MLflowService` → `ClearMLService` 전환
+  - [ ] Metrics API 업데이트
+- [ ] `experiments.py` - ClearML Project/Experiment 연동
+  - [ ] MLflow Experiment → ClearML Project 마이그레이션
+  - [ ] Experiment CRUD API 업데이트
+
+**12.2.4 Training SDK Updates**
+- [ ] SDK `report_progress()` - ClearML Task.current_task() 사용
+- [ ] Metrics 로깅 방식 변경
+  - [ ] MLflow `log_metrics()` → ClearML `task.logger.report_scalar()`
+  - [ ] Step-based logging 지원
+- [ ] Checkpoint 업로드
+  - [ ] MLflow artifacts → ClearML task.upload_artifact()
+
+**12.2.5 Database Migration**
+- [ ] `clearml_task_id` 컬럼 추가 (TrainingJob, InferenceJob, ExportJob)
+- [ ] `experiments` 테이블 업데이트
+  - [ ] `mlflow_experiment_id` → `clearml_project_id`
+  - [ ] 기존 데이터 마이그레이션 스크립트
+
+**12.2.6 Frontend Updates**
+- [ ] MLflow 메트릭 차트 → ClearML Web UI 임베드
+- [ ] Experiment 페이지 UI 업데이트
+- [ ] ClearML Task ID 표시
+
+**12.2.7 MLflow Cleanup**
+- [ ] MLflow 관련 코드 제거
+  - [ ] `app/utils/mlflow_client.py` 제거
+  - [ ] `app/services/mlflow_service.py` 제거
+  - [ ] MLflow 관련 import 정리
+- [ ] Docker Compose에서 MLflow 제거
+- [ ] Environment variables 정리
+
+**예상 시간**: 3일
+**위험도**: ⚠️ High (핵심 기능 변경)
+
+**Reference**: [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md)
+
+---
+
+### 12.3 Storage 클라이언트 통일 (Day 5-6) ⬜
+
+**목표**: Storage 접근 방식을 `dual_storage` 싱글톤으로 통일
+
+**12.3.1 Pattern Analysis**
+- [ ] 현재 storage 사용 패턴 분석
+  - [ ] `storage_utils.get_storage_client()` - 5회
+  - [ ] `dual_storage` (싱글톤) - 3회
+  - [ ] `DualStorageClient` (클래스) - 2회
+  - [ ] `s3_storage` (싱글톤) - 1회
+
+**12.3.2 Migration**
+- [ ] `app/api/export.py` - dual_storage 싱글톤으로 통일
+- [ ] `app/api/inference.py` - dual_storage 싱글톤으로 통일
+- [ ] `app/api/datasets.py` - dual_storage 싱글톤으로 통일
+- [ ] `app/api/training.py` - dual_storage 싱글톤으로 통일
+
+**12.3.3 Cleanup**
+- [ ] `storage_utils.py` deprecation 또는 제거
+- [ ] Import 정리
+
+**12.3.4 Verification**
+- [ ] Export E2E 테스트
+- [ ] Inference E2E 테스트
+- [ ] Dataset upload 테스트
+- [ ] Training checkpoint upload 테스트
+
+**예상 시간**: 2일
+**위험도**: ⚠️ Low-Medium
+
+---
+
+### 12.4 Callback 로직 리팩토링 (Day 7-8) ⬜
+
+**목표**: 3개 callback endpoint의 공통 로직 추출
+
+**12.4.1 TrainingCallbackService 생성**
+- [ ] `app/services/training_callback_service.py` 생성
+- [ ] 공통 메서드 구현
+  - [ ] `_get_job_or_404(job_id)` - Job 조회
+  - [ ] `handle_progress(job_id, callback)` - Progress callback
+  - [ ] `handle_completion(job_id, callback)` - Completion callback
+  - [ ] `handle_log(job_id, callback)` - Log callback
+- [ ] ClearML 통합
+  - [ ] Progress → ClearML metrics 로깅
+  - [ ] Completion → ClearML task 종료
+  - [ ] Log → ClearML console 로깅
+
+**12.4.2 training.py Endpoint 간소화**
+- [ ] `/jobs/{job_id}/callback/progress` - TrainingCallbackService 사용
+- [ ] `/jobs/{job_id}/callback/completion` - TrainingCallbackService 사용
+- [ ] `/jobs/{job_id}/callback/log` - TrainingCallbackService 사용
+- [ ] 중복 코드 제거 (50+ lines → 10 lines per endpoint)
+
+**12.4.3 WebSocket 통합**
+- [ ] `TrainingCallbackService`에서 WebSocket broadcast
+- [ ] 일관된 메시지 포맷
+
+**12.4.4 Testing**
+- [ ] Unit tests for TrainingCallbackService
+- [ ] Integration tests for callback endpoints
+- [ ] E2E training lifecycle test
+
+**예상 시간**: 2일
+**위험도**: ⭕ Low
+
+---
+
+### 12.5 Testing & Validation ⬜
+
+**목표**: 모든 리팩토링 검증
+
+**12.5.1 Unit Tests**
+- [ ] ClearMLService unit tests
+- [ ] TrainingCallbackService unit tests
+- [ ] Storage 함수 테스트
+
+**12.5.2 Integration Tests**
+- [ ] Training lifecycle with ClearML
+- [ ] Metrics logging 검증
+- [ ] Checkpoint upload/download
+
+**12.5.3 E2E Tests**
+- [ ] Complete training flow (create → progress → complete)
+- [ ] Export with ClearML logging
+- [ ] Inference with ClearML tracking
+
+**12.5.4 Performance Tests**
+- [ ] ClearML vs MLflow 성능 비교
+- [ ] Storage operation 성능 측정
+
+---
+
+### 12.6 Documentation Updates ⬜
+
+**목표**: 변경사항 문서화
+
+- [ ] ARCHITECTURE.md - ClearML 통합 섹션 업데이트
+- [ ] API_SPECIFICATION.md - Experiment API 업데이트
+- [ ] DEVELOPMENT.md - ClearML 설정 가이드
+- [ ] TIER0_SETUP.md - ClearML Server 설정
+- [ ] Migration guide 작성 (MLflow → ClearML)
+
+---
+
+## Phase 12 Success Criteria
+
+**리팩토링 완료 기준**:
+- [ ] 모든 Dead code 제거 (~500 lines)
+- [ ] MLflow 완전히 제거, ClearML로 100% 전환
+- [ ] Storage 패턴 100% 통일 (dual_storage 싱글톤)
+- [ ] Callback 로직 집중화 (TrainingCallbackService)
+- [ ] 모든 E2E 테스트 통과
+- [ ] 성능 저하 없음 (또는 개선)
+
+**ClearML 마이그레이션 성공 기준**:
+- [ ] ClearML Web UI에서 모든 Training/Inference/Export job 조회 가능
+- [ ] 실시간 metrics 업데이트
+- [ ] Artifacts (checkpoints, models) 자동 업로드
+- [ ] Experiment 비교 기능 사용 가능
+- [ ] 기존 MLflow 데이터 마이그레이션 완료
+
+**코드 품질 기준**:
+- [ ] No deprecated warnings
+- [ ] 패턴 일관성 100%
+- [ ] 테스트 커버리지 85%+
+- [ ] 문서 업데이트 완료
+
 
 ---
 

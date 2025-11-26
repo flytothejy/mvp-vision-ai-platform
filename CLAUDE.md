@@ -14,6 +14,100 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Key Concept:** Natural language → LLM Intent Parser → Training Config → Temporal Workflow → Kubernetes Training Pod
 
+## 📋 TODO Management Guidelines
+
+### CRITICAL: Always Update Implementation Progress
+
+**Every implementation MUST be tracked in the central TODO list.**
+
+#### Required Actions for Every Implementation
+
+1. **Before Starting**:
+   - Read `docs/todo/IMPLEMENTATION_TO_DO_LIST.md` to understand current status
+   - Identify the relevant Phase and sub-section
+   - Check if the task is already listed
+
+2. **During Implementation**:
+   - Mark tasks as in-progress when starting
+   - Mark tasks as completed immediately after finishing (not in batches)
+   - Update progress percentages when completing sub-sections
+   - Add new discovered tasks to the list as they are identified
+
+3. **When Creating Detailed Documentation**:
+   - Create detailed plans in `docs/todo/reference/` for complex features
+   - Link from `IMPLEMENTATION_TO_DO_LIST.md` using relative paths
+   - Use descriptive filenames (e.g., `CLEARML_MIGRATION_PLAN.md`, `REDIS_INTEGRATION_DESIGN.md`)
+
+4. **Update Format**:
+   ```markdown
+   # In IMPLEMENTATION_TO_DO_LIST.md
+
+   ## Phase X: Feature Name (Progress%)
+
+   ### X.1 Sub-feature ✅/🔄/⬜
+   - [x] Completed task
+   - [x] Another completed task
+   - [ ] Pending task
+
+   **Reference**: [DETAILED_PLAN.md](reference/DETAILED_PLAN.md)
+   ```
+
+#### When to Create Reference Documents
+
+Create detailed plans in `docs/todo/reference/` when:
+- Implementation requires >3 days
+- Multiple team members need coordination
+- Complex architecture decisions involved
+- Migration/refactoring affects multiple components
+
+**Examples**:
+- ✅ `CLEARML_MIGRATION_PLAN.md` - Complex 7-day migration
+- ✅ `BACKEND_REFACTORING_PLAN.md` - Multi-component refactoring
+- ✅ `PHASE_11_MICROSERVICE_SEPARATION.md` - Major architectural change
+- ❌ Simple bug fixes - Update TODO list directly
+
+#### Progress Tracking
+
+**Update `IMPLEMENTATION_TO_DO_LIST.md` header**:
+```markdown
+**총 진행률**: XX% (completed/total tasks)
+**최종 업데이트**: YYYY-MM-DD (Brief description of what was completed)
+```
+
+**Phase Progress Calculation**:
+```
+Phase Progress = (Completed Tasks / Total Tasks) × 100%
+```
+
+**Status Indicators**:
+- ✅ **Completed** (100%)
+- 🔄 **In Progress** (1-99%)
+- ⬜ **Not Started** (0%)
+
+#### Example Workflow
+
+```
+1. Start Feature Implementation
+   → Read IMPLEMENTATION_TO_DO_LIST.md
+   → Mark relevant tasks as in-progress
+
+2. Complete Sub-task
+   → Mark sub-task as [x] completed
+   → Update progress percentage if needed
+   → Commit changes
+
+3. Finish Feature
+   → Mark all tasks as [x] completed
+   → Update phase progress percentage
+   → Update header "최종 업데이트"
+   → Commit with message: "docs(todo): update Phase X progress"
+
+4. Discover New Requirements
+   → Add new tasks to appropriate Phase
+   → Update total task count
+   → Recalculate progress percentage
+```
+
 ## Code Quality & Implementation Standards
 
 ### ⚠️ CRITICAL: No Shortcuts, No Workarounds
