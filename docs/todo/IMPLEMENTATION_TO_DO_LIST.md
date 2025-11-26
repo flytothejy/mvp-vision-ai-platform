@@ -23,7 +23,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 67% | Tier 1-2 완료, Tier 3-4 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
-| 12. Backend Refactoring & ClearML | ⬜ 0% | 리팩토링 및 MLOps 플랫폼 전환 | [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md) |
+| 12. Temporal Orchestration & Backend Modernization | ⬜ 0% | Temporal Workflow 도입 및 플랫폼 현대화 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-0) |
 
 ---
 
@@ -986,235 +986,1175 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
 
-## Phase 12: Backend Refactoring & ClearML Migration (0%)
+## Phase 12: Temporal Orchestration & Backend Modernization (0%)
 
-Backend 코드 품질 개선 및 MLOps 플랫폼을 MLflow에서 ClearML로 전환.
+**브랜치**: `feature/phase-12-temporal-orchestration`
 
-**목표**:
-1. Legacy 코드 제거 및 패턴 통일
-2. ClearML로의 완전한 마이그레이션
-3. 코드베이스 단순화 및 유지보수성 향상
+Temporal Workflow 도입으로 Training 파이프라인 현대화 및 Backend 아키텍처 개선.
 
-**예상 기간**: 7-8일
-**Reference**: [BACKEND_REFACTORING_PLAN.md](BACKEND_REFACTORING_PLAN.md), [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md)
+**핵심 목표**:
+1. ✨ **Temporal Workflow 도입** - Long-running job 안정적 관리
+2. 🏗️ **TrainingManager 추상화** - Subprocess/K8s 통합 인터페이스
+3. 📊 **ClearML 전환** - MLflow → ClearML 완전 마이그레이션
+4. 🧹 **Backend 리팩토링** - Dead code 제거, 패턴 통일
+
+**예상 기간**: 11일
+**References**:
+- [BACKEND_REFACTORING_PLAN.md](BACKEND_REFACTORING_PLAN.md)
+- [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md)
+- [Temporal Documentation](https://docs.temporal.io/)
 
 ---
 
-### 12.1 Dead Code 제거 (Day 1) ⬜
+### 12.0 Temporal Workflow Infrastructure (Day 1-3) ⬜
 
-**목표**: 사용되지 않는 Training Manager 코드 제거
+**목표**: Temporal 기반 Training 파이프라인 구축
 
-**12.1.1 Training Manager Cleanup**
-- [ ] `app/utils/training_client.py` 제거 (115 lines)
-- [ ] `app/utils/training_manager.py` 제거
-- [ ] `app/utils/training_manager_k8s.py` 제거
-- [ ] Import 확인 및 정리
+#### 12.0.1 Temporal Client Setup ⬜
 
-**12.1.2 Verification**
-- [ ] 모든 테스트 통과 확인
-- [ ] Backend 정상 실행 확인
-- [ ] Training job 생성/실행 정상 동작
+**Backend Temporal 연동**:
+```python
+# platform/backend/app/core/temporal_client.py
+from temporalio.client import Client
+from app.core.config import settings
+
+_client: Optional[Client] = None
+
+async def get_temporal_client() -> Client:
+    """Get or create Temporal client (singleton)"""
+    global _client
+    if _client is None:
+        _client = await Client.connect(
+            settings.TEMPORAL_HOST,  # localhost:7233 for Tier 0
+            namespace=settings.TEMPORAL_NAMESPACE  # "default"
+        )
+    return _client
+
+async def close_temporal_client():
+    """Close Temporal client on shutdown"""
+    global _client
+    if _client:
+        await _client.close()
+        _client = None
+```
+
+**Environment Variables**:
+```bash
+# .env
+TEMPORAL_HOST=localhost:7233
+TEMPORAL_NAMESPACE=default
+TEMPORAL_TASK_QUEUE=training-tasks
+```
+
+**Checklist**:
+- [ ] `app/core/temporal_client.py` 생성
+- [ ] Environment variables 추가
+- [ ] Startup/shutdown hooks 구현
+- [ ] Connection test
 
 **예상 시간**: 0.5일
-**위험도**: ⭕ Low (사용되지 않는 코드)
 
 ---
 
-### 12.2 MLflow → ClearML Migration (Day 2-4) ⬜
+#### 12.0.2 Training Workflow Definition ⬜
 
-**목표**: MLflow를 ClearML로 완전히 교체
+**Workflow 구현**:
+```python
+# platform/backend/app/workflows/training_workflow.py
+from datetime import timedelta
+from temporalio import workflow
+from temporalio.common import RetryPolicy
 
-**12.2.1 ClearML Setup**
-- [ ] ClearML Server 배포 (Docker Compose / Kind)
-  - [ ] `docker-compose.tier0.yaml`에 clearml-server 추가
-  - [ ] API Server, Web UI, File Server 구성
-  - [ ] PostgreSQL, MongoDB, Elasticsearch 연동
-- [ ] ClearML 환경변수 설정
-  - [ ] `CLEARML_API_HOST`, `CLEARML_WEB_HOST`, `CLEARML_FILES_HOST`
-  - [ ] `CLEARML_API_ACCESS_KEY`, `CLEARML_API_SECRET_KEY`
+@workflow.defn
+class TrainingWorkflow:
+    """
+    Training job orchestration workflow
+
+    Steps:
+    1. Validate dataset exists and is accessible
+    2. Create ClearML Task
+    3. Execute training (long-running, 24h timeout)
+    4. Handle completion/failure
+    5. Cleanup resources
+    """
+
+    @workflow.run
+    async def run(self, job_id: int) -> dict:
+        """
+        Run complete training workflow
+
+        Args:
+            job_id: TrainingJob primary key
+
+        Returns:
+            dict: Final training result
+        """
+
+        # Activity 1: Validate dataset
+        await workflow.execute_activity(
+            "validate_dataset",
+            job_id,
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(seconds=1),
+                maximum_interval=timedelta(seconds=10),
+            )
+        )
+
+        # Activity 2: Create ClearML Task
+        clearml_task_id = await workflow.execute_activity(
+            "create_clearml_task",
+            job_id,
+            start_to_close_timeout=timedelta(minutes=2)
+        )
+
+        # Activity 3: Execute training (LONG-RUNNING)
+        training_result = await workflow.execute_activity(
+            "execute_training",
+            job_id,
+            start_to_close_timeout=timedelta(hours=24),  # Max 24 hours
+            heartbeat_timeout=timedelta(minutes=5),       # Heartbeat every 5 min
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,  # No retry for training failures
+            )
+        )
+
+        # Activity 4: Cleanup
+        await workflow.execute_activity(
+            "cleanup_training_resources",
+            job_id,
+            start_to_close_timeout=timedelta(minutes=5)
+        )
+
+        return training_result
+```
+
+**Checklist**:
+- [ ] `app/workflows/training_workflow.py` 생성
+- [ ] Workflow steps 정의
+- [ ] Timeout/retry policies 설정
+- [ ] Type hints 및 docstrings
+- [ ] Unit tests
+
+**예상 시간**: 1일
+
+---
+
+#### 12.0.3 Temporal Activities ⬜
+
+**Activity 구현**:
+```python
+# platform/backend/app/workflows/activities.py
+from temporalio import activity
+from sqlalchemy.orm import Session
+from app.db.database import SessionLocal
+from app.db import models
+from app.services.training_manager import get_training_manager
+
+@activity.defn
+async def validate_dataset(job_id: int) -> None:
+    """Validate dataset exists and is accessible"""
+    db = SessionLocal()
+    try:
+        job = db.query(models.TrainingJob).filter(
+            models.TrainingJob.id == job_id
+        ).first()
+
+        if not job:
+            raise ValueError(f"TrainingJob {job_id} not found")
+
+        dataset = db.query(models.Dataset).filter(
+            models.Dataset.id == job.dataset_id
+        ).first()
+
+        if not dataset:
+            raise ValueError(f"Dataset {job.dataset_id} not found")
+
+        # Check S3 accessibility
+        from app.utils.dual_storage import dual_storage
+        exists = await dual_storage.file_exists(
+            dataset.s3_path,
+            bucket_type='external'
+        )
+
+        if not exists:
+            raise ValueError(f"Dataset file not found in S3: {dataset.s3_path}")
+
+        activity.logger.info(f"Dataset validation passed for job {job_id}")
+    finally:
+        db.close()
+
+@activity.defn
+async def create_clearml_task(job_id: int) -> str:
+    """Create ClearML task for tracking"""
+    db = SessionLocal()
+    try:
+        from app.services.clearml_service import ClearMLService
+
+        clearml_service = ClearMLService(db)
+        task_id = clearml_service.create_task(
+            job_id=job_id,
+            task_name=f"Training Job {job_id}",
+            task_type="training",
+            project_name="Platform Training"
+        )
+
+        activity.logger.info(f"ClearML task created: {task_id}")
+        return task_id
+    finally:
+        db.close()
+
+@activity.defn
+async def execute_training(job_id: int) -> dict:
+    """
+    Execute training using TrainingManager
+
+    This is a LONG-RUNNING activity (up to 24 hours)
+    Sends heartbeats every ~60 seconds
+    """
+    db = SessionLocal()
+    try:
+        job = db.query(models.TrainingJob).filter(
+            models.TrainingJob.id == job_id
+        ).first()
+
+        # Get TrainingManager (Subprocess or K8s based on config)
+        manager = get_training_manager()
+
+        # Start training (non-blocking for subprocess, blocking for K8s)
+        manager.start_training(job)
+
+        # Monitor progress and send heartbeats
+        import asyncio
+        while True:
+            db.refresh(job)
+
+            if job.status in ["completed", "failed", "cancelled"]:
+                break
+
+            # Send heartbeat to Temporal
+            progress_msg = f"Epoch {job.current_epoch}/{job.config.get('epochs', 100)}"
+            activity.heartbeat(progress_msg)
+
+            # Wait 60 seconds before next check
+            await asyncio.sleep(60)
+
+        # Return final result
+        return {
+            "status": job.status,
+            "checkpoint_best": job.checkpoint_best_path,
+            "checkpoint_last": job.checkpoint_last_path,
+            "final_metrics": job.final_metrics
+        }
+    finally:
+        db.close()
+
+@activity.defn
+async def cleanup_training_resources(job_id: int) -> None:
+    """Cleanup temporary resources after training"""
+    activity.logger.info(f"Cleaning up resources for job {job_id}")
+
+    # Future: Kill subprocess if still running
+    # Future: Delete K8s Job if exists
+    # Future: Clean temp files
+
+    pass
+```
+
+**Checklist**:
+- [ ] `validate_dataset` activity 구현
+- [ ] `create_clearml_task` activity 구현
+- [ ] `execute_training` activity 구현 (heartbeat 포함)
+- [ ] `cleanup_training_resources` activity 구현
+- [ ] Error handling 및 logging
+- [ ] Unit tests for each activity
+
+**예상 시간**: 2일
+
+---
+
+#### 12.0.4 Temporal Worker ⬜
+
+**Worker 실행 스크립트**:
+```python
+# platform/backend/app/workflows/worker.py
+import asyncio
+import logging
+from temporalio.client import Client
+from temporalio.worker import Worker
+from app.core.config import settings
+from app.workflows.training_workflow import TrainingWorkflow
+from app.workflows.activities import (
+    validate_dataset,
+    create_clearml_task,
+    execute_training,
+    cleanup_training_resources
+)
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+async def main():
+    """Run Temporal Worker"""
+    client = await Client.connect(
+        settings.TEMPORAL_HOST,
+        namespace=settings.TEMPORAL_NAMESPACE
+    )
+
+    logger.info(f"Starting Temporal Worker on task queue: {settings.TEMPORAL_TASK_QUEUE}")
+
+    worker = Worker(
+        client,
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        workflows=[TrainingWorkflow],
+        activities=[
+            validate_dataset,
+            create_clearml_task,
+            execute_training,
+            cleanup_training_resources
+        ]
+    )
+
+    logger.info("Temporal Worker started successfully")
+    await worker.run()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+**Docker Compose 업데이트**:
+```yaml
+# infrastructure/docker-compose.tier0.yaml
+services:
+  temporal-worker:
+    build:
+      context: ../platform/backend
+      dockerfile: Dockerfile
+    container_name: temporal-worker
+    command: python -m app.workflows.worker
+    env_file:
+      - ../platform/backend/.env
+    depends_on:
+      - temporal
+      - postgres
+      - redis
+    restart: unless-stopped
+```
+
+**Startup Script**:
+```bash
+# scripts/start_temporal_worker.sh
+#!/bin/bash
+cd platform/backend
+poetry run python -m app.workflows.worker
+```
+
+**Checklist**:
+- [ ] `app/workflows/worker.py` 생성
+- [ ] Docker Compose에 temporal-worker 추가
+- [ ] Startup script 작성
+- [ ] Worker 실행 테스트
+- [ ] Temporal UI에서 worker 확인
+
+**예상 시간**: 0.5일
+
+---
+
+#### 12.0.5 API Integration ⬜
+
+**Training API 업데이트**:
+```python
+# platform/backend/app/api/training.py (수정)
+from app.core.temporal_client import get_temporal_client
+from app.workflows.training_workflow import TrainingWorkflow
+
+@router.post("/jobs", response_model=schemas.TrainingJobResponse)
+async def create_training_job(
+    request: schemas.TrainingJobCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Create training job and start Temporal workflow
+
+    BEFORE (Tier 0 - Old):
+        manager = get_training_manager()
+        manager.start_training(job)
+
+    AFTER (Tier 0 - With Temporal):
+        workflow_handle = await temporal_client.start_workflow(...)
+    """
+
+    # 1. Create TrainingJob in DB
+    job = models.TrainingJob(
+        project_id=request.project_id,
+        dataset_id=request.dataset_id,
+        model_name=request.model_name,
+        task_type=request.task_type,
+        framework=request.framework or "ultralytics",
+        config=request.config,
+        advanced_config=request.advanced_config,
+        status="pending",
+        created_by=current_user.id
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # 2. Start Temporal Workflow (REPLACES direct TrainingManager call)
+    temporal_client = await get_temporal_client()
+
+    workflow_handle = await temporal_client.start_workflow(
+        TrainingWorkflow.run,
+        job.id,
+        id=f"training-{job.id}",  # Unique workflow ID
+        task_queue=settings.TEMPORAL_TASK_QUEUE,
+        execution_timeout=timedelta(hours=25)  # Workflow timeout
+    )
+
+    # 3. Save workflow ID to DB
+    job.temporal_workflow_id = workflow_handle.id
+    job.status = "queued"  # Changed from "pending"
+    db.commit()
+
+    logger.info(f"Temporal workflow started: {workflow_handle.id} for job {job.id}")
+
+    return job
+
+@router.delete("/jobs/{job_id}")
+async def cancel_training_job(
+    job_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Cancel running training job via Temporal"""
+    job = db.query(models.TrainingJob).filter(
+        models.TrainingJob.id == job_id
+    ).first()
+
+    if not job:
+        raise HTTPException(404, "Training job not found")
+
+    if not job.temporal_workflow_id:
+        raise HTTPException(400, "No workflow associated with this job")
+
+    # Cancel Temporal workflow
+    temporal_client = await get_temporal_client()
+    workflow_handle = temporal_client.get_workflow_handle(job.temporal_workflow_id)
+    await workflow_handle.cancel()
+
+    job.status = "cancelled"
+    db.commit()
+
+    return {"status": "cancelled"}
+```
+
+**Database Migration**:
+```python
+# alembic/versions/xxx_add_temporal_workflow_id.py
+def upgrade():
+    op.add_column('training_jobs', sa.Column('temporal_workflow_id', sa.String(255), nullable=True))
+    op.create_index('ix_training_jobs_temporal_workflow_id', 'training_jobs', ['temporal_workflow_id'])
+
+def downgrade():
+    op.drop_index('ix_training_jobs_temporal_workflow_id', 'training_jobs')
+    op.drop_column('training_jobs', 'temporal_workflow_id')
+```
+
+**Checklist**:
+- [ ] `create_training_job()` Temporal 연동
+- [ ] `cancel_training_job()` Temporal 연동
+- [ ] Database migration 생성 및 실행
+- [ ] API tests 업데이트
+- [ ] Temporal UI에서 workflow 실행 확인
+
+**예상 시간**: 1일
+
+---
+
+### 12.1 TrainingManager Abstraction (Day 4-5) ⬜
+
+**목표**: Subprocess와 K8s Job을 통합하는 추상 인터페이스 구현
+
+#### 12.1.1 Abstract TrainingManager ⬜
+
+**Base Class**:
+```python
+# platform/backend/app/services/training_manager.py
+from abc import ABC, abstractmethod
+from typing import Optional
+from app.db import models
+
+class TrainingManager(ABC):
+    """
+    Abstract base class for training execution
+
+    Implementations:
+    - SubprocessTrainingManager: Tier 0 (local development)
+    - KubernetesTrainingManager: Tier 1+ (production)
+    """
+
+    @abstractmethod
+    def start_training(self, job: models.TrainingJob) -> None:
+        """
+        Start training job
+
+        Args:
+            job: TrainingJob instance with config
+
+        Note:
+            This method is called from Temporal Activity
+            Should be non-blocking for subprocess (fire and forget)
+            Should be blocking for K8s (wait for job creation)
+        """
+        pass
+
+    @abstractmethod
+    def stop_training(self, job_id: int) -> None:
+        """
+        Stop running training job
+
+        Args:
+            job_id: TrainingJob ID
+        """
+        pass
+
+    @abstractmethod
+    def get_status(self, job_id: int) -> str:
+        """
+        Get current training status
+
+        Args:
+            job_id: TrainingJob ID
+
+        Returns:
+            Status string: "running", "completed", "failed", etc.
+        """
+        pass
+```
+
+**Checklist**:
+- [ ] Abstract base class 구현
+- [ ] Method signatures 정의
+- [ ] Docstrings 작성
+- [ ] Type hints 추가
+
+**예상 시간**: 0.5일
+
+---
+
+#### 12.1.2 Subprocess Implementation ⬜
+
+**Subprocess Manager**:
+```python
+# platform/backend/app/services/training_manager_subprocess.py
+import subprocess
+import json
+from pathlib import Path
+from app.services.training_manager import TrainingManager
+from app.core.config import settings
+
+class SubprocessTrainingManager(TrainingManager):
+    """
+    Tier 0: Local development using subprocess
+
+    Migrated from: app/utils/training_subprocess.py
+    """
+
+    def __init__(self):
+        self.processes = {}  # job_id -> subprocess.Popen
+
+    def start_training(self, job: models.TrainingJob) -> None:
+        """Start training in subprocess"""
+        # Build environment variables
+        env_vars = self._build_env_vars(job)
+
+        # Get trainer path
+        trainer_path = Path(settings.TRAINERS_DIR) / job.framework
+
+        # Start subprocess
+        process = subprocess.Popen(
+            ["python", "train.py"],
+            cwd=str(trainer_path),
+            env=env_vars,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        self.processes[job.id] = process
+        logger.info(f"Started subprocess for job {job.id}, PID: {process.pid}")
+
+    def stop_training(self, job_id: int) -> None:
+        """Kill subprocess"""
+        if job_id in self.processes:
+            process = self.processes[job_id]
+            process.terminate()
+            process.wait(timeout=10)
+            del self.processes[job_id]
+
+    def get_status(self, job_id: int) -> str:
+        """Check if subprocess is running"""
+        if job_id not in self.processes:
+            return "unknown"
+
+        process = self.processes[job_id]
+        if process.poll() is None:
+            return "running"
+        else:
+            return "completed" if process.returncode == 0 else "failed"
+
+    def _build_env_vars(self, job: models.TrainingJob) -> dict:
+        """Build environment variables for trainer"""
+        base_env = os.environ.copy()
+
+        # Job identifiers
+        base_env["JOB_ID"] = str(job.id)
+        base_env["DATASET_ID"] = str(job.dataset_id)
+        base_env["MODEL_NAME"] = job.model_name
+        base_env["TASK_TYPE"] = job.task_type
+        base_env["FRAMEWORK"] = job.framework
+
+        # Basic config (individual env vars)
+        config = job.config or {}
+        base_env["EPOCHS"] = str(config.get("epochs", 100))
+        base_env["BATCH_SIZE"] = str(config.get("batch_size", 16))
+        base_env["LEARNING_RATE"] = str(config.get("learning_rate", 0.01))
+        base_env["IMGSZ"] = str(config.get("imgsz", 640))
+        base_env["DEVICE"] = config.get("device", "cpu")
+
+        # Advanced config (JSON)
+        config_json = {
+            "advanced_config": job.advanced_config or {},
+            "primary_metric": "mAP50-95"
+        }
+        base_env["CONFIG"] = json.dumps(config_json)
+
+        # Callback URL
+        base_env["CALLBACK_URL"] = f"{settings.API_URL}/api/v1/training/jobs/{job.id}/callback"
+
+        # Storage credentials
+        base_env["INTERNAL_S3_ENDPOINT"] = settings.INTERNAL_S3_ENDPOINT
+        base_env["INTERNAL_S3_ACCESS_KEY"] = settings.INTERNAL_S3_ACCESS_KEY
+        base_env["INTERNAL_S3_SECRET_KEY"] = settings.INTERNAL_S3_SECRET_KEY
+        base_env["EXTERNAL_S3_ENDPOINT"] = settings.EXTERNAL_S3_ENDPOINT
+        base_env["EXTERNAL_S3_ACCESS_KEY"] = settings.EXTERNAL_S3_ACCESS_KEY
+        base_env["EXTERNAL_S3_SECRET_KEY"] = settings.EXTERNAL_S3_SECRET_KEY
+
+        return base_env
+```
+
+**Migration from training_subprocess.py**:
+- [ ] Copy logic from `app/utils/training_subprocess.py`
+- [ ] Refactor to class-based design
+- [ ] Update environment variable building
+- [ ] Test subprocess execution
+
+**예상 시간**: 1일
+
+---
+
+#### 12.1.3 Kubernetes Implementation ⬜
+
+**K8s Manager**:
+```python
+# platform/backend/app/services/training_manager_k8s.py
+from kubernetes import client, config
+from app.services.training_manager import TrainingManager
+
+class KubernetesTrainingManager(TrainingManager):
+    """
+    Tier 1+: Production using Kubernetes Job
+    """
+
+    def __init__(self):
+        # Load K8s config (in-cluster or kubeconfig)
+        try:
+            config.load_incluster_config()
+        except:
+            config.load_kube_config()
+
+        self.batch_api = client.BatchV1Api()
+        self.namespace = settings.K8S_TRAINING_NAMESPACE  # "training"
+
+    def start_training(self, job: models.TrainingJob) -> None:
+        """Create K8s Job"""
+        job_manifest = self._build_job_manifest(job)
+
+        self.batch_api.create_namespaced_job(
+            namespace=self.namespace,
+            body=job_manifest
+        )
+
+        logger.info(f"Created K8s Job: training-{job.id}")
+
+    def stop_training(self, job_id: int) -> None:
+        """Delete K8s Job"""
+        job_name = f"training-{job_id}"
+
+        self.batch_api.delete_namespaced_job(
+            name=job_name,
+            namespace=self.namespace,
+            propagation_policy='Background'
+        )
+
+    def get_status(self, job_id: int) -> str:
+        """Get K8s Job status"""
+        job_name = f"training-{job_id}"
+
+        try:
+            k8s_job = self.batch_api.read_namespaced_job_status(
+                name=job_name,
+                namespace=self.namespace
+            )
+
+            if k8s_job.status.succeeded:
+                return "completed"
+            elif k8s_job.status.failed:
+                return "failed"
+            elif k8s_job.status.active:
+                return "running"
+            else:
+                return "pending"
+        except client.exceptions.ApiException as e:
+            if e.status == 404:
+                return "not_found"
+            raise
+
+    def _build_job_manifest(self, job: models.TrainingJob) -> dict:
+        """Build K8s Job manifest"""
+        return {
+            "apiVersion": "batch/v1",
+            "kind": "Job",
+            "metadata": {
+                "name": f"training-{job.id}",
+                "labels": {
+                    "app": "training-job",
+                    "job-id": str(job.id),
+                    "framework": job.framework
+                }
+            },
+            "spec": {
+                "backoffLimit": 0,  # No retries (Temporal handles this)
+                "ttlSecondsAfterFinished": 3600,  # Cleanup after 1 hour
+                "template": {
+                    "metadata": {
+                        "labels": {
+                            "app": "training-job",
+                            "job-id": str(job.id)
+                        }
+                    },
+                    "spec": {
+                        "restartPolicy": "Never",
+                        "containers": [{
+                            "name": "trainer",
+                            "image": f"{settings.TRAINER_IMAGE_REGISTRY}/trainer-{job.framework}:latest",
+                            "env": self._build_k8s_env_vars(job),
+                            "resources": {
+                                "requests": {
+                                    "memory": "4Gi",
+                                    "cpu": "2"
+                                },
+                                "limits": {
+                                    "memory": "8Gi",
+                                    "cpu": "4",
+                                    "nvidia.com/gpu": "1"  # Request 1 GPU
+                                }
+                            },
+                            "volumeMounts": [{
+                                "name": "dshm",
+                                "mountPath": "/dev/shm"
+                            }]
+                        }],
+                        "volumes": [{
+                            "name": "dshm",
+                            "emptyDir": {
+                                "medium": "Memory",
+                                "sizeLimit": "2Gi"
+                            }
+                        }]
+                    }
+                }
+            }
+        }
+
+    def _build_k8s_env_vars(self, job: models.TrainingJob) -> list:
+        """Build K8s environment variables"""
+        # Similar to subprocess, but as K8s env var format
+        env_vars = [
+            {"name": "JOB_ID", "value": str(job.id)},
+            {"name": "DATASET_ID", "value": str(job.dataset_id)},
+            {"name": "MODEL_NAME", "value": job.model_name},
+            # ... (same as subprocess)
+        ]
+
+        # Secrets from K8s Secret
+        env_vars.extend([
+            {"name": "INTERNAL_S3_ACCESS_KEY", "valueFrom": {"secretKeyRef": {"name": "s3-credentials", "key": "internal-access-key"}}},
+            {"name": "INTERNAL_S3_SECRET_KEY", "valueFrom": {"secretKeyRef": {"name": "s3-credentials", "key": "internal-secret-key"}}},
+        ])
+
+        return env_vars
+```
+
+**Checklist**:
+- [ ] K8s client 설정
+- [ ] Job manifest builder 구현
+- [ ] Environment variables 구성
+- [ ] GPU resource 요청
+- [ ] Volume mounts 설정
+- [ ] Integration tests (Kind cluster)
+
+**예상 시간**: 1.5일
+
+---
+
+#### 12.1.4 Factory Pattern ⬜
+
+**Manager Factory**:
+```python
+# platform/backend/app/services/training_manager_factory.py
+from app.core.config import settings
+from app.services.training_manager import TrainingManager
+from app.services.training_manager_subprocess import SubprocessTrainingManager
+from app.services.training_manager_k8s import KubernetesTrainingManager
+
+_manager_instance: Optional[TrainingManager] = None
+
+def get_training_manager() -> TrainingManager:
+    """
+    Get TrainingManager instance based on TRAINING_MODE
+
+    Returns:
+        TrainingManager: Subprocess or K8s implementation
+    """
+    global _manager_instance
+
+    if _manager_instance is None:
+        if settings.TRAINING_MODE == "kubernetes":
+            _manager_instance = KubernetesTrainingManager()
+        else:  # Default: "subprocess"
+            _manager_instance = SubprocessTrainingManager()
+
+    return _manager_instance
+```
+
+**Config Settings**:
+```python
+# app/core/config.py
+class Settings(BaseSettings):
+    # Training execution mode
+    TRAINING_MODE: str = Field(default="subprocess", env="TRAINING_MODE")
+    # Options: "subprocess" (Tier 0), "kubernetes" (Tier 1+)
+
+    # Trainer settings
+    TRAINERS_DIR: str = Field(default="../trainers", env="TRAINERS_DIR")
+    TRAINER_IMAGE_REGISTRY: str = Field(default="localhost:5000", env="TRAINER_IMAGE_REGISTRY")
+
+    # K8s settings
+    K8S_TRAINING_NAMESPACE: str = Field(default="training", env="K8S_TRAINING_NAMESPACE")
+```
+
+**Checklist**:
+- [ ] Factory function 구현
+- [ ] Singleton pattern 적용
+- [ ] Environment-based switching
+- [ ] Config validation
+- [ ] Tests for both modes
+
+**예상 시간**: 0.5일
+
+---
+
+#### 12.1.5 Dead Code Removal ⬜
+
+**제거 대상 확인 및 제거**:
+```bash
+# 1. 사용되지 않는 파일 확인
+ls -la platform/backend/app/utils/training_*.py
+
+# Expected:
+# training_client.py       (HTTP API 방식 - 제거)
+# training_subprocess.py   (→ SubprocessTrainingManager로 마이그레이션)
+# training_manager.py      (old version - 확인 후 제거)
+# training_manager_k8s.py  (skeleton - 확인 후 제거)
+```
+
+**제거 작업**:
+- [ ] `training_client.py` 제거 (HTTP API 미사용)
+- [ ] `training_subprocess.py` → SubprocessTrainingManager로 마이그레이션 후 제거
+- [ ] Old `training_manager.py` 검토 후 제거
+- [ ] Old `training_manager_k8s.py` 검토 후 제거
+- [ ] Import 정리 (`grep -r "training_client\|training_subprocess"`)
+- [ ] Tests 업데이트
+
+**예상 시간**: 0.5일
+
+---
+
+### 12.2 ClearML Migration (Day 6-9) ⬜
+
+**목표**: MLflow → ClearML 완전 전환
+
+**NOTE**: 상세 내용은 [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md) 참조
+
+#### 12.2.1 ClearML Setup (Day 6) ⬜
+- [ ] Docker Compose에 ClearML Server 추가
 - [ ] Kind에 ClearML Helm chart 배포
+- [ ] API 키 생성 및 환경변수 설정
+- [ ] Web UI 접속 확인
 
-**12.2.2 ClearML Service 구현**
+#### 12.2.2 ClearMLService Implementation (Day 6-7) ⬜
 - [ ] `app/services/clearml_service.py` 생성
-  - [ ] Task 생성/조회/업데이트
-  - [ ] Metrics 로깅
-  - [ ] Artifacts 업로드
-  - [ ] Experiment/Project 관리
-- [ ] TrainingJob ↔ ClearML Task 매핑
-  - [ ] `clearml_task_id` 필드 추가
-  - [ ] Task 자동 생성 로직
-  - [ ] Status 동기화
+- [ ] Task 생성/조회/업데이트 메서드
+- [ ] Metrics 로깅 메서드
+- [ ] Artifact 업로드 메서드
+- [ ] Model registration 메서드
 
-**12.2.3 Backend API Updates**
-- [ ] `training.py` - MLflowService → ClearMLService 교체
-  - [ ] `get_mlflow_client()` 제거 (4 locations)
-  - [ ] `MLflowService` → `ClearMLService` 전환
-  - [ ] Metrics API 업데이트
-- [ ] `experiments.py` - ClearML Project/Experiment 연동
-  - [ ] MLflow Experiment → ClearML Project 마이그레이션
-  - [ ] Experiment CRUD API 업데이트
+#### 12.2.3 Backend API Migration (Day 7-8) ⬜
+- [ ] `training.py` - MLflowService → ClearMLService
+- [ ] `experiments.py` - MLflow Experiment → ClearML Project
+- [ ] Database migration (clearml_task_id 추가)
 
-**12.2.4 Training SDK Updates**
-- [ ] SDK `report_progress()` - ClearML Task.current_task() 사용
-- [ ] Metrics 로깅 방식 변경
-  - [ ] MLflow `log_metrics()` → ClearML `task.logger.report_scalar()`
-  - [ ] Step-based logging 지원
-- [ ] Checkpoint 업로드
-  - [ ] MLflow artifacts → ClearML task.upload_artifact()
+#### 12.2.4 Temporal Activity Integration (Day 8) ⬜
+```python
+# app/workflows/activities.py - ClearML 통합
+@activity.defn
+async def create_clearml_task(job_id: int) -> str:
+    """Create ClearML task (replaces MLflow run)"""
+    db = SessionLocal()
+    try:
+        clearml_service = ClearMLService(db)
+        task_id = clearml_service.create_task(
+            job_id=job_id,
+            task_name=f"Training Job {job_id}",
+            task_type="training"
+        )
 
-**12.2.5 Database Migration**
-- [ ] `clearml_task_id` 컬럼 추가 (TrainingJob, InferenceJob, ExportJob)
-- [ ] `experiments` 테이블 업데이트
-  - [ ] `mlflow_experiment_id` → `clearml_project_id`
-  - [ ] 기존 데이터 마이그레이션 스크립트
+        # Update DB
+        job = db.query(models.TrainingJob).get(job_id)
+        job.clearml_task_id = task_id
+        db.commit()
 
-**12.2.6 Frontend Updates**
-- [ ] MLflow 메트릭 차트 → ClearML Web UI 임베드
-- [ ] Experiment 페이지 UI 업데이트
-- [ ] ClearML Task ID 표시
+        return task_id
+    finally:
+        db.close()
+```
 
-**12.2.7 MLflow Cleanup**
+- [ ] Temporal activities ClearML 연동
+- [ ] Workflow에서 ClearML Task 생성
+- [ ] Progress callback에서 ClearML metrics 로깅
+
+#### 12.2.5 Training SDK Updates (Day 8-9) ⬜
+```python
+# platform/trainers/ultralytics/trainer_sdk.py
+from clearml import Task
+
+def report_progress(self, epoch: int, total_epochs: int, metrics: TrainingCallbackMetrics):
+    # 1. Backend callback (기존)
+    response = self.http_client.post(...)
+
+    # 2. ClearML logging (추가)
+    task = Task.current_task()
+    if task:
+        for name, value in metrics.dict().items():
+            series, title = self._parse_metric_name(name)
+            task.logger.report_scalar(
+                title=title,
+                series=series,
+                value=value,
+                iteration=epoch
+            )
+```
+
+- [ ] SDK에 ClearML Task 통합
+- [ ] train.py에서 Task.init() 호출
+- [ ] Metrics logging ClearML로 전환
+- [ ] Checkpoint upload ClearML artifacts
+
+#### 12.2.6 MLflow Cleanup (Day 9) ⬜
 - [ ] MLflow 관련 코드 제거
-  - [ ] `app/utils/mlflow_client.py` 제거
-  - [ ] `app/services/mlflow_service.py` 제거
-  - [ ] MLflow 관련 import 정리
 - [ ] Docker Compose에서 MLflow 제거
 - [ ] Environment variables 정리
+- [ ] Tests 업데이트
 
-**예상 시간**: 3일
-**위험도**: ⚠️ High (핵심 기능 변경)
-
-**Reference**: [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md)
+**예상 시간**: 4일
 
 ---
 
-### 12.3 Storage 클라이언트 통일 (Day 5-6) ⬜
+### 12.3 Storage Pattern Unification (Day 10) ⬜
 
 **목표**: Storage 접근 방식을 `dual_storage` 싱글톤으로 통일
 
-**12.3.1 Pattern Analysis**
-- [ ] 현재 storage 사용 패턴 분석
-  - [ ] `storage_utils.get_storage_client()` - 5회
-  - [ ] `dual_storage` (싱글톤) - 3회
-  - [ ] `DualStorageClient` (클래스) - 2회
-  - [ ] `s3_storage` (싱글톤) - 1회
+#### 12.3.1 Migration Plan
+```python
+# BEFORE (혼재)
+from app.utils.storage_utils import get_storage_client
+from app.utils.dual_storage import dual_storage
+from app.utils.dual_storage import DualStorageClient
 
-**12.3.2 Migration**
-- [ ] `app/api/export.py` - dual_storage 싱글톤으로 통일
-- [ ] `app/api/inference.py` - dual_storage 싱글톤으로 통일
-- [ ] `app/api/datasets.py` - dual_storage 싱글톤으로 통일
-- [ ] `app/api/training.py` - dual_storage 싱글톤으로 통일
+# AFTER (통일)
+from app.utils.dual_storage import dual_storage  # Only this
+```
 
-**12.3.3 Cleanup**
+#### 12.3.2 File-by-File Migration
+- [ ] `app/api/export.py` → dual_storage 싱글톤
+- [ ] `app/api/inference.py` → dual_storage 싱글톤
+- [ ] `app/api/datasets.py` → dual_storage 싱글톤
+- [ ] `app/api/training.py` → dual_storage 싱글톤
 - [ ] `storage_utils.py` deprecation 또는 제거
-- [ ] Import 정리
 
-**12.3.4 Verification**
+#### 12.3.3 Testing
 - [ ] Export E2E 테스트
 - [ ] Inference E2E 테스트
 - [ ] Dataset upload 테스트
 - [ ] Training checkpoint upload 테스트
 
-**예상 시간**: 2일
-**위험도**: ⚠️ Low-Medium
+**예상 시간**: 1일
 
 ---
 
-### 12.4 Callback 로직 리팩토링 (Day 7-8) ⬜
+### 12.4 Callback Logic Refactoring (Day 11) ⬜
 
 **목표**: 3개 callback endpoint의 공통 로직 추출
 
-**12.4.1 TrainingCallbackService 생성**
-- [ ] `app/services/training_callback_service.py` 생성
-- [ ] 공통 메서드 구현
-  - [ ] `_get_job_or_404(job_id)` - Job 조회
-  - [ ] `handle_progress(job_id, callback)` - Progress callback
-  - [ ] `handle_completion(job_id, callback)` - Completion callback
-  - [ ] `handle_log(job_id, callback)` - Log callback
-- [ ] ClearML 통합
-  - [ ] Progress → ClearML metrics 로깅
-  - [ ] Completion → ClearML task 종료
-  - [ ] Log → ClearML console 로깅
+#### 12.4.1 TrainingCallbackService
+```python
+# app/services/training_callback_service.py
+class TrainingCallbackService:
+    def __init__(self, db: Session):
+        self.db = db
+        self.clearml = ClearMLService(db)
+        self.ws_manager = get_websocket_manager()
 
-**12.4.2 training.py Endpoint 간소화**
-- [ ] `/jobs/{job_id}/callback/progress` - TrainingCallbackService 사용
-- [ ] `/jobs/{job_id}/callback/completion` - TrainingCallbackService 사용
-- [ ] `/jobs/{job_id}/callback/log` - TrainingCallbackService 사용
-- [ ] 중복 코드 제거 (50+ lines → 10 lines per endpoint)
+    async def handle_progress(self, job_id: int, callback: ProgressCallback):
+        """Handle progress callback"""
+        job = self._get_job_or_404(job_id)
 
-**12.4.3 WebSocket 통합**
-- [ ] `TrainingCallbackService`에서 WebSocket broadcast
-- [ ] 일관된 메시지 포맷
+        # Update DB
+        job.current_epoch = callback.epoch
+        job.status = "running"
+        self.db.commit()
 
-**12.4.4 Testing**
-- [ ] Unit tests for TrainingCallbackService
-- [ ] Integration tests for callback endpoints
-- [ ] E2E training lifecycle test
+        # Log to ClearML
+        if job.clearml_task_id:
+            self.clearml.log_metrics(
+                job.clearml_task_id,
+                callback.metrics,
+                iteration=callback.epoch
+            )
 
-**예상 시간**: 2일
-**위험도**: ⭕ Low
+        # WebSocket broadcast
+        await self.ws_manager.broadcast_to_job(job_id, {
+            "type": "training_progress",
+            "epoch": callback.epoch,
+            "metrics": callback.metrics
+        })
+```
+
+#### 12.4.2 Endpoint Simplification
+```python
+# app/api/training.py (simplified)
+@router.post("/jobs/{job_id}/callback/progress")
+async def training_progress_callback(
+    job_id: int,
+    callback: schemas.TrainingProgressCallback,
+    db: Session = Depends(get_db)
+):
+    service = TrainingCallbackService(db)
+    await service.handle_progress(job_id, callback)
+    return {"status": "ok"}
+```
+
+#### 12.4.3 Tasks
+- [ ] TrainingCallbackService 생성
+- [ ] handle_progress, handle_completion, handle_log 구현
+- [ ] Callback endpoints 간소화
+- [ ] Unit tests
+- [ ] Integration tests
+
+**예상 시간**: 1일
 
 ---
 
-### 12.5 Testing & Validation ⬜
+### 12.5 Testing & Documentation ⬜
 
-**목표**: 모든 리팩토링 검증
+#### 12.5.1 Integration Tests
+- [ ] Temporal workflow E2E test
+- [ ] SubprocessTrainingManager test
+- [ ] KubernetesTrainingManager test (Kind)
+- [ ] ClearML integration test
+- [ ] Complete training flow (Tier 0)
 
-**12.5.1 Unit Tests**
-- [ ] ClearMLService unit tests
-- [ ] TrainingCallbackService unit tests
-- [ ] Storage 함수 테스트
-
-**12.5.2 Integration Tests**
-- [ ] Training lifecycle with ClearML
-- [ ] Metrics logging 검증
-- [ ] Checkpoint upload/download
-
-**12.5.3 E2E Tests**
-- [ ] Complete training flow (create → progress → complete)
-- [ ] Export with ClearML logging
-- [ ] Inference with ClearML tracking
-
-**12.5.4 Performance Tests**
-- [ ] ClearML vs MLflow 성능 비교
-- [ ] Storage operation 성능 측정
-
----
-
-### 12.6 Documentation Updates ⬜
-
-**목표**: 변경사항 문서화
-
-- [ ] ARCHITECTURE.md - ClearML 통합 섹션 업데이트
-- [ ] API_SPECIFICATION.md - Experiment API 업데이트
-- [ ] DEVELOPMENT.md - ClearML 설정 가이드
-- [ ] TIER0_SETUP.md - ClearML Server 설정
-- [ ] Migration guide 작성 (MLflow → ClearML)
+#### 12.5.2 Documentation Updates
+- [ ] ARCHITECTURE.md - Temporal section 추가
+- [ ] ARCHITECTURE.md - TrainingManager 추상화 설명
+- [ ] API_SPECIFICATION.md - Workflow API 추가
+- [ ] DEVELOPMENT.md - Temporal Worker 실행 가이드
+- [ ] TIER0_SETUP.md - ClearML 설정 추가
+- [ ] Migration guide (MLflow → ClearML)
 
 ---
 
 ## Phase 12 Success Criteria
 
-**리팩토링 완료 기준**:
-- [ ] 모든 Dead code 제거 (~500 lines)
-- [ ] MLflow 완전히 제거, ClearML로 100% 전환
-- [ ] Storage 패턴 100% 통일 (dual_storage 싱글톤)
-- [ ] Callback 로직 집중화 (TrainingCallbackService)
-- [ ] 모든 E2E 테스트 통과
-- [ ] 성능 저하 없음 (또는 개선)
+### Infrastructure
+- [ ] Temporal Server 실행 중 (99.9% uptime)
+- [ ] Temporal Worker 실행 중
+- [ ] ClearML Server 실행 중
+- [ ] Temporal UI에서 workflow 조회 가능 (http://localhost:8233)
+- [ ] ClearML UI에서 task 조회 가능 (http://localhost:8080)
 
-**ClearML 마이그레이션 성공 기준**:
-- [ ] ClearML Web UI에서 모든 Training/Inference/Export job 조회 가능
-- [ ] 실시간 metrics 업데이트
-- [ ] Artifacts (checkpoints, models) 자동 업로드
-- [ ] Experiment 비교 기능 사용 가능
-- [ ] 기존 MLflow 데이터 마이그레이션 완료
+### Backend
+- [ ] TrainingManager 추상화 완료 (Subprocess + K8s)
+- [ ] Temporal Workflow/Activities 구현
+- [ ] ClearMLService 구현
+- [ ] MLflow 코드 100% 제거
+- [ ] Storage 패턴 100% 통일
+- [ ] Callback 로직 집중화
 
-**코드 품질 기준**:
-- [ ] No deprecated warnings
-- [ ] 패턴 일관성 100%
-- [ ] 테스트 커버리지 85%+
-- [ ] 문서 업데이트 완료
+### Database
+- [ ] `temporal_workflow_id` 컬럼 추가
+- [ ] `clearml_task_id` 컬럼 추가
+- [ ] MLflow 관련 컬럼 deprecated 처리
+
+### API
+- [ ] Training job 생성 시 Temporal workflow 시작
+- [ ] Training job 취소 시 Temporal workflow cancel
+- [ ] Callback endpoints ClearML 통합
+
+### Testing
+- [ ] 모든 Unit tests 통과
+- [ ] 모든 Integration tests 통과
+- [ ] Temporal workflow E2E test 통과
+- [ ] ClearML integration test 통과
+- [ ] Training flow (Tier 0 subprocess) 정상 동작
+
+### Documentation
+- [ ] ARCHITECTURE.md 업데이트
+- [ ] API_SPECIFICATION.md 업데이트
+- [ ] DEVELOPMENT.md 업데이트
+- [ ] Migration guides 작성
+
+---
+
+## 예상 일정 (11일)
+
+| Day | Tasks | Deliverable |
+|-----|-------|-------------|
+| 1 | 12.0.1-12.0.2 | Temporal Client + Workflow |
+| 2 | 12.0.3 | Temporal Activities |
+| 3 | 12.0.4-12.0.5 | Worker + API Integration |
+| 4 | 12.1.1-12.1.2 | TrainingManager 추상화 + Subprocess |
+| 5 | 12.1.3-12.1.5 | K8s Manager + Factory + Dead Code 제거 |
+| 6 | 12.2.1-12.2.2 | ClearML Setup + Service |
+| 7 | 12.2.3 | Backend API Migration |
+| 8 | 12.2.4-12.2.5 | Temporal + SDK ClearML 통합 |
+| 9 | 12.2.6 | MLflow Cleanup |
+| 10 | 12.3 | Storage Unification |
+| 11 | 12.4-12.5 | Callback Refactoring + Testing |
+
+---
 
 
 ---

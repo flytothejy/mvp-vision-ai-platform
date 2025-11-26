@@ -1,7 +1,11 @@
 # ClearML Migration Plan
 
 **작성일**: 2025-11-27
+**업데이트**: 2025-11-27 (Temporal Workflow 통합)
 **목표**: MLflow에서 ClearML로 완전 전환하여 더 강력한 MLOps 플랫폼 구축
+
+**⚠️ IMPORTANT**: 이 마이그레이션은 **Temporal Workflow와 함께** 진행됩니다.
+ClearML Task 생성은 Temporal Activity에서 수행되며, 기존 Backend API 직접 호출 방식은 사용하지 않습니다.
 
 ---
 
@@ -58,21 +62,33 @@ ClearML Server (Self-hosted)
 
 ### Integration with Platform
 
+**⚠️ UPDATED**: Temporal Workflow 통합
+
 ```
-Training Job
+Training Job (API Request)
     ↓
-Backend (creates ClearML Task)
+Temporal Workflow (orchestration)
+    ↓
+Activity: create_clearml_task  ← ClearML Task 생성
+    ↓
+Activity: execute_training
+    ↓
+TrainingManager (Subprocess/K8s)
     ↓
 Trainer Container
     ↓
-Training SDK (ClearML Task.current_task())
-    ↓
-ClearML Task (logs metrics, artifacts)
+Training SDK (Task.current_task() + metrics logging)
     ↓
 ClearML Server (stores and displays)
     ↓
 Web UI / API (query and visualize)
 ```
+
+**Key Changes from Original Plan**:
+1. **ClearML Task 생성**: Backend API → Temporal Activity
+2. **Training 실행**: TrainingManager를 Temporal Activity에서 호출
+3. **Metrics 로깅**: SDK → ClearML (기존과 동일)
+4. **Workflow 관리**: Temporal이 timeout, retry, heartbeat 모두 처리
 
 ---
 
