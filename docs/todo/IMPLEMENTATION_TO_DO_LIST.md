@@ -1032,12 +1032,21 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [x] Migration 스크립트 작성 및 실행 (`migrate_phase_11_5.py`)
 - [x] PostgreSQL DB 검증 완료 (24개 → 23개 테이블)
 
-**11.5.5 Platform API 엔드포인트 수정** 🔄
+**11.5.5 Platform API 엔드포인트 수정** ✅
 - [x] `GET /api/v1/datasets/available` - Labeler API 프록시로 변경
-- [ ] `POST /api/v1/training` - Labeler API 통합 (dataset validation + snapshot 생성)
-- [ ] `training.py`에서 Dataset 조회를 LabelerClient로 변경
-- [ ] `datasets.py`에서 Dataset CRUD 엔드포인트 제거/수정
-- [ ] Error handling 및 fallback 로직
+- [x] `POST /api/v1/training` - Labeler API 통합 (dataset validation + snapshot 생성)
+- [x] `training.py`에서 Dataset 조회를 LabelerClient로 변경
+- [x] Split Integration - 3-Level Priority System 구현
+  - [x] Database migration (split_strategy, split_config, FK 수정)
+  - [x] TrainingJob.split_strategy 필드 추가
+  - [x] DatasetSnapshot.split_config 필드 추가
+  - [x] resolve_split_configuration() 유틸리티 구현
+  - [x] Training API split_strategy 지원 (create/start endpoints)
+  - [x] SnapshotService split_config 캡처
+  - [x] SPLIT_INTEGRATION_DESIGN.md 설계 문서 작성
+- [ ] `datasets.py`에서 Dataset CRUD 엔드포인트 제거
+- [ ] `datasets.py`에서 Split 엔드포인트 리팩토링 (Labeler 통합)
+- [x] Error handling 및 fallback 로직
 
 **11.5.6 Integration Testing** ⬜
 - [ ] Labeler API 연결 테스트
@@ -1057,7 +1066,8 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cache invalidation 전략
 
 **예상 기간**: 5-6일
-**진행률**: 60% (11.5.1-11.5.4 완료, 11.5.5 일부 완료)
+**진행률**: 85% (11.5.1-11.5.5 완료, 11.5.6-11.5.7 대기 중)
+**최종 업데이트**: 2025-11-28 - Split Integration 완료 (3-Level Priority System)
 
 ## Phase 12: Temporal Orchestration & Backend Modernization (80%)
 

@@ -21,7 +21,8 @@ router = APIRouter()
 async def auto_create_snapshot_if_needed(
     dataset_id: str,
     user_id: int,
-    db: Session
+    db: Session,
+    split_config: dict = None
 ) -> str:
     """
     Automatically create a snapshot of the dataset before training starts.
@@ -31,12 +32,16 @@ async def auto_create_snapshot_if_needed(
     - Creates snapshot using SnapshotService
     - Stores snapshot reference in Platform DB
 
+    Phase 11.5.5: Split Integration
+    - Captures resolved split configuration in snapshot for reproducibility
+
     This ensures reproducibility by freezing the dataset state at the time of training.
 
     Args:
         dataset_id: Dataset ID from Labeler
         user_id: User creating the snapshot
         db: Database session
+        split_config: Resolved split configuration (from resolve_split_configuration)
 
     Returns:
         Snapshot ID (snap_{uuid}) or None if failed
@@ -62,12 +67,20 @@ async def auto_create_snapshot_if_needed(
         # Create snapshot using SnapshotService
         logger.info(f"[SNAPSHOT] Creating new snapshot for dataset {dataset_id}")
 
+        # Prepare snapshot notes with split info
+        notes_parts = [f"Automatic snapshot for training job (dataset: {dataset['name']})"]
+        if split_config:
+            split_source = split_config.get('source', 'unknown')
+            split_method = split_config.get('method', 'unknown')
+            notes_parts.append(f"Split: {split_source} ({split_method})")
+
         snapshot = await snapshot_service.create_snapshot(
             dataset_id=dataset_id,
             dataset_path=dataset['storage_path'],
             user_id=user_id,
             db=db,
-            notes=f"Automatic snapshot for training job (dataset: {dataset['name']})"
+            notes=" | ".join(notes_parts),
+            split_config=split_config  # Phase 11.5.5: Capture split for reproducibility
         )
 
         logger.info(f"[SNAPSHOT] Snapshot created successfully: {snapshot.id}")
@@ -251,6 +264,12 @@ async def create_training_job(
         advanced_config_dict['split_config'] = dataset_split_config
         logger.info(f"[CONFIG] Added split_config to advanced_config")
 
+    # Phase 11.5.5: Extract split_strategy from config
+    split_strategy_dict = None
+    if job_request.config.split_strategy:
+        split_strategy_dict = job_request.config.split_strategy.model_dump()
+        logger.info(f"[SPLIT] Job-level split strategy provided: {split_strategy_dict['method']}")
+
     # Create training job
     job = models.TrainingJob(
         session_id=job_request.session_id,
@@ -270,6 +289,7 @@ async def create_training_job(
         batch_size=job_request.config.batch_size,
         learning_rate=job_request.config.learning_rate,
         advanced_config=advanced_config_dict if advanced_config_dict else None,
+        split_strategy=split_strategy_dict,  # Phase 11.5.5: Store split override
         primary_metric=primary_metric,
         primary_metric_mode=primary_metric_mode,
         status="pending",
@@ -426,12 +446,27 @@ async def start_training_job(
             detail=f"Cannot start job with status '{job.status}'",
         )
 
-    # Phase 11.5: Auto-create snapshot before training starts (if dataset_id provided)
+    # Phase 11.5.5: Resolve split configuration and create snapshot
     if job.dataset_id:
         try:
-            # Use job.created_by as user_id for snapshot creation
+            # Step 1: Resolve split configuration using 3-Level Priority System
+            from app.utils.split_resolver import resolve_split_configuration
+
+            logger.info(f"[JOB {job_id}] Resolving split configuration...")
+            resolved_split = await resolve_split_configuration(
+                dataset_id=job.dataset_id,
+                job_split_strategy=job.split_strategy
+            )
+            logger.info(f"[JOB {job_id}] Split resolved: source={resolved_split['source']}, method={resolved_split['method']}")
+
+            # Step 2: Create snapshot with resolved split
             user_id = job.created_by or 1  # Fallback to system user if not set
-            snapshot_id = await auto_create_snapshot_if_needed(job.dataset_id, user_id, db)
+            snapshot_id = await auto_create_snapshot_if_needed(
+                dataset_id=job.dataset_id,
+                user_id=user_id,
+                db=db,
+                split_config=resolved_split
+            )
             if snapshot_id:
                 job.dataset_snapshot_id = snapshot_id
                 db.commit()

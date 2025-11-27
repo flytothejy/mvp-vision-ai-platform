@@ -39,10 +39,14 @@ class SnapshotService:
         dataset_path: str,
         user_id: int,
         db: Session,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        split_config: Optional[dict] = None
     ) -> DatasetSnapshot:
         """
         Create an immutable snapshot of a dataset.
+
+        Phase 11.5.5: Split Integration
+        - Captures resolved split configuration for training reproducibility
 
         Args:
             dataset_id: Original dataset ID (from Labeler)
@@ -50,6 +54,7 @@ class SnapshotService:
             user_id: User creating the snapshot
             db: Database session
             notes: Optional notes about the snapshot
+            split_config: Resolved split configuration (from resolve_split_configuration)
 
         Returns:
             DatasetSnapshot model instance
@@ -66,6 +71,12 @@ class SnapshotService:
             f"from dataset {dataset_id} (path: {dataset_path})"
         )
 
+        if split_config:
+            logger.info(
+                f"[SnapshotService] Snapshot will capture split: "
+                f"source={split_config.get('source')}, method={split_config.get('method')}"
+            )
+
         try:
             # Copy dataset from R2 (datasets/ → snapshots/)
             await self._copy_r2_folder(
@@ -80,7 +91,8 @@ class SnapshotService:
                 storage_path=snapshot_path,
                 created_by_user_id=user_id,
                 notes=notes or f"Snapshot for dataset {dataset_id}",
-                created_at=datetime.utcnow()
+                created_at=datetime.utcnow(),
+                split_config=split_config  # Phase 11.5.5: Capture resolved split
             )
 
             db.add(snapshot)

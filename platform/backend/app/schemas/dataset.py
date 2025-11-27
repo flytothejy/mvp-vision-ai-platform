@@ -64,25 +64,32 @@ class SplitStrategy(BaseModel):
 
     Specified when creating a training job to override the dataset's default split.
     This allows different experiments to use different splits on the same dataset.
+
+    Phase 11.5.5: Split Integration
+    - Implements 3-Level Priority System for split resolution
     """
     method: Literal["use_dataset", "auto", "custom"] = Field(
         description=(
-            "'use_dataset': Use dataset.split_config, "
+            "'use_dataset': Use dataset.split_config from Labeler annotations.json, "
             "'auto': Random split with specified ratio/seed, "
-            "'custom': Provide custom split mapping"
+            "'custom': Provide explicit split mapping per image"
         )
     )
     ratio: Optional[List[float]] = Field(
         default=None,
-        description="Train/val ratio for 'auto' method, e.g., [0.7, 0.3]"
+        description="Train/val/test ratio for 'auto' method, e.g., [0.8, 0.2] or [0.7, 0.2, 0.1]"
     )
     seed: Optional[int] = Field(
         default=42,
-        description="Random seed for 'auto' method"
+        description="Random seed for 'auto' method reproducibility"
     )
     custom_splits: Optional[Dict[str, str]] = Field(
         default=None,
-        description="Custom split mapping for 'custom' method: {'image_id': 'train'|'val'}"
+        description="Custom split mapping for 'custom' method: {'image_id': 'train'|'val'|'test'}"
+    )
+    exclude_images: Optional[List[str]] = Field(
+        default=None,
+        description="List of image IDs to exclude from training (e.g., corrupted images)"
     )
 
     class Config:

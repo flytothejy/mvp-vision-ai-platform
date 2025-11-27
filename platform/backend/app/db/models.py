@@ -245,6 +245,17 @@ class DatasetSnapshot(Base):
     notes = Column(Text, nullable=True)  # Optional notes about this snapshot
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
+    # Phase 11.5.5: Split integration - Capture resolved split for reproducibility
+    split_config = Column(JSON, nullable=True)
+    # Example: {
+    #   "source": "job_override" | "dataset_default" | "auto",
+    #   "method": "auto" | "manual",
+    #   "ratio": [0.8, 0.2],
+    #   "seed": 42,
+    #   "num_train": 800,
+    #   "num_val": 200
+    # }
+
     # Relationships
     created_by = relationship("User", backref="created_snapshots")
 
@@ -405,15 +416,20 @@ class TrainingJob(Base):
     task_type = Column(String(50), nullable=False)
     num_classes = Column(Integer, nullable=True)
 
-    # Dataset reference (new approach)
-    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)
-    dataset_snapshot_id = Column(String(100), ForeignKey('datasets.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference
+    # Dataset reference (Phase 11.5: Labeler integration)
+    dataset_id = Column(String(100), nullable=True, index=True)  # References Labeler dataset UUID (no FK)
+    dataset_snapshot_id = Column(String(100), ForeignKey('dataset_snapshots.id', ondelete='SET NULL'), nullable=True, index=True)  # Immutable snapshot reference
     dataset_version = Column(Integer, nullable=True)  # Deprecated: kept for backward compatibility
 
     # Legacy dataset path (backward compatibility)
     dataset_path = Column(String(500), nullable=True)  # Made nullable for transition
     dataset_format = Column(String(50), nullable=False, default="imagefolder")
     output_dir = Column(String(500), nullable=False)
+
+    # Phase 11.5.5: Split integration
+    split_strategy = Column(JSON, nullable=True)  # Training-specific split override
+    # Example: {"method": "auto", "ratio": [0.7, 0.3], "seed": 123}
+    # Or: {"method": "manual", "splits": {...}, "exclude_images": [...]}
 
     epochs = Column(Integer, nullable=False)
     batch_size = Column(Integer, nullable=False)
