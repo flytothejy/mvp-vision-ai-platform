@@ -485,118 +485,45 @@ async def start_training_job(
             # Don't fail the training if snapshot creation fails
             logger.warning(f"[JOB {job_id}] Continuing training without snapshot")
 
-    # Determine Training Service URL based on framework
-    if job.framework == "ultralytics":
-        training_service_url = settings.ULTRALYTICS_SERVICE_URL
-    elif job.framework == "timm":
-        training_service_url = settings.TIMM_SERVICE_URL
-    elif job.framework == "huggingface":
-        training_service_url = settings.HUGGINGFACE_SERVICE_URL
-    else:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported framework: {job.framework}"
-        )
-
-    # Prepare training configuration
-    training_config = {
-        "model": job.model_name,
-        "task": job.task_type,
-        "epochs": job.epochs,
-        "batch": job.batch_size,
-        "learning_rate": job.learning_rate,
-        "imgsz": 640,  # Default image size
-        "device": "cpu",  # Will be "cuda" in production
-        "primary_metric": job.primary_metric or "loss",  # Metric to optimize
-        "primary_metric_mode": job.primary_metric_mode or "min",  # min or max
-    }
-
-    # Add split_config from advanced_config if available
-    if job.advanced_config and "split_config" in job.advanced_config:
-        training_config["split_config"] = job.advanced_config["split_config"]
-        logger.info(f"[JOB {job_id}] Including split_config in training request")
-
-    # Prepare Training Service request
-    dataset_s3_uri = f"s3://training-datasets/datasets/{job.dataset_id}/"
-    callback_url = f"{settings.API_V1_PREFIX}/training/jobs/{job_id}/callback"
-
-    training_request = {
-        "job_id": str(job_id),
-        "config": training_config,
-        "dataset_s3_uri": dataset_s3_uri,
-        "callback_url": callback_url,
-    }
-
-    # Get training executor from environment (subprocess or k8s)
-    executor = os.getenv("TRAINING_EXECUTOR", "subprocess")
-    logger.info(f"[JOB {job_id}] Using training executor: {executor}")
-
+    # Phase 12: Start training via Temporal Workflow
     try:
-        # Build absolute callback URL
-        backend_port = os.getenv("BACKEND_PORT", "8000")
-        callback_base_url = f"http://localhost:{backend_port}{settings.API_V1_PREFIX}/training"
+        from app.core.temporal_client import get_temporal_client
+        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
 
-        if executor == "subprocess":
-            # Tier-0 (Docker Compose), Tier-1 (Kind): Execute via subprocess
-            from app.utils.training_subprocess import get_training_subprocess_manager
+        # Get Temporal client
+        client = await get_temporal_client()
+        logger.info(f"[JOB {job_id}] Temporal client ready")
 
-            manager = get_training_subprocess_manager()
+        # Generate workflow ID
+        workflow_id = f"training-job-{job_id}"
 
-            # Start training subprocess
-            process = await manager.start_training(
-                job_id=job_id,
-                framework=job.framework,
-                model_name=job.model_name,
-                dataset_s3_uri=dataset_s3_uri,
-                callback_url=callback_base_url,
-                config=training_config,
-            )
-
-            # Update job status
-            job.status = "running"
-            job.started_at = datetime.utcnow()
-            job.process_id = process.pid
-            db.commit()
-            db.refresh(job)
-
-            logger.info(f"[JOB {job_id}] Training started via subprocess (PID: {process.pid})")
-
-        elif executor == "k8s":
-            # Tier-2 (K8s Production): Create K8s Job
-            from app.utils.training_k8s_job import create_training_k8s_job
-
-            k8s_job_name = await create_training_k8s_job(
-                job_id=job_id,
-                framework=job.framework,
-                model_name=job.model_name,
-                dataset_s3_uri=dataset_s3_uri,
-                callback_url=callback_base_url,
-                config=training_config,
-            )
-
-            # Update job status
-            job.status = "running"
-            job.started_at = datetime.utcnow()
-            job.k8s_job_name = k8s_job_name
-            db.commit()
-            db.refresh(job)
-
-            logger.info(f"[JOB {job_id}] Training started via K8s Job: {k8s_job_name}")
-
-        else:
-            raise ValueError(f"Unknown TRAINING_EXECUTOR: {executor}. Expected 'subprocess' or 'k8s'.")
-
-    except FileNotFoundError as e:
-        logger.error(f"[JOB {job_id}] Training Service setup error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Training Service not properly configured: {str(e)}"
+        # Start TrainingWorkflow
+        workflow_handle = await client.start_workflow(
+            TrainingWorkflow.run,
+            TrainingWorkflowInput(job_id=job_id),
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
         )
+
+        logger.info(f"[JOB {job_id}] TrainingWorkflow started: {workflow_id}")
+
+        # Update job status
+        job.status = "running"
+        job.started_at = datetime.utcnow()
+        job.workflow_id = workflow_id
+        db.commit()
+        db.refresh(job)
+
+        logger.info(
+            f"[JOB {job_id}] Training orchestration started "
+            f"(workflow_id: {workflow_id}, mode: {settings.TRAINING_MODE})"
+        )
+
     except Exception as e:
-        logger.error(f"[JOB {job_id}] Failed to start training: {e}")
+        logger.error(f"[JOB {job_id}] Failed to start training workflow: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start training: {str(e)}"
+            detail=f"Failed to start training workflow: {str(e)}"
         )
 
     return job

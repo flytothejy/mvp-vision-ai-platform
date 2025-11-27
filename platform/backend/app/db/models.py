@@ -489,6 +489,9 @@ class TrainingJob(Base):
     error_message = Column(Text, nullable=True)
     process_id = Column(Integer, nullable=True)
 
+    # Temporal Workflow ID (Phase 12: Temporal Orchestration)
+    workflow_id = Column(String(200), nullable=True, index=True)
+
     final_accuracy = Column(Float, nullable=True)
     best_checkpoint_path = Column(String(500), nullable=True)
     last_checkpoint_path = Column(String(500), nullable=True)
