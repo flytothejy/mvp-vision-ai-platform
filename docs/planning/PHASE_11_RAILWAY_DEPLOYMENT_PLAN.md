@@ -8,18 +8,26 @@ Vision AI Training Platform의 단계적 Railway 배포 계획.
 
 ---
 
-## 전체 타임라인 (예상 4주)
+## 전체 타임라인 (예상 5-6주)
 
 ```
 Week 1: Shared Resources 배포 (Labeler 협업)
   ├─ User DB Railway 배포 (3일)
   └─ Cloudflare R2 연동 (2일)
 
-Week 2-3: Platform 독립 개발 (Labeler 독립)
+Week 1-2: Dataset Service Integration (Labeler 협업)
+  ├─ Platform DB Dataset 의존성 분석 (1일)
+  ├─ Labeler API 요구사항 정의 (2일)
+  ├─ Platform LabelerClient 구현 (2일)
+  ├─ Platform API 수정 (2일)
+  ├─ DB Schema 마이그레이션 (1일)
+  └─ 통합 테스트 (2일)
+
+Week 3-4: Platform 독립 개발 (Labeler 독립)
   ├─ 로컬 환경에서 Phase 10, 8, 1 등 개발
   └─ 기능 구현 완료
 
-Week 4: Platform Railway 배포 (Labeler 독립)
+Week 5-6: Platform Railway 배포 (Labeler 독립)
   ├─ Backend 배포 (2일)
   ├─ Frontend 배포 (1일)
   └─ Infrastructure 통합 (2일)
@@ -280,6 +288,548 @@ EXTERNAL_BUCKET_DATASETS=vision-platform-datasets
 - R2 연동 가이드 작성
 - MinIO → R2 마이그레이션 스크립트 문서화
 - Rollback 절차 정리 (R2 → MinIO 복원 방법)
+
+---
+
+## Stage 2.5: Dataset Management Migration to Labeler (Week 1-2)
+
+### 목표
+Dataset 관리 책임을 Platform에서 Labeler로 완전히 이전하고, Platform이 Labeler API를 통해 Dataset 정보를 조회하도록 구조 변경.
+
+### 배경 및 결정 사항
+
+**Problem Statement:**
+- 기존에 Platform DB의 `datasets` 테이블에서 dataset 메타데이터 관리
+- Labeler가 별도로 dataset annotation 관리
+- 데이터 중복 및 동기화 문제 발생
+
+**Architecture Decision:**
+- **Dataset 관리 책임**: Platform → Labeler로 완전 이전
+- **Single Source of Truth**: Labeler가 모든 dataset 메타데이터 소유
+- **Platform 역할**: Labeler API를 쿼리하여 dataset 정보 조회
+- **Platform DB**: dataset_id(UUID)만 FK로 저장, 메타데이터는 저장하지 않음
+
+**Reference**: `docs/integration/LABELER_DATASET_API_REQUIREMENTS.md`
+
+### 2.5.1 Platform DB Dataset 의존성 분석 (Day 1)
+
+**분석 목적:**
+Platform DB에서 Dataset 테이블을 참조하는 모든 FK 관계 파악.
+
+**분석 결과:**
+```python
+# Foreign Key Dependencies
+1. TrainingJob.dataset_id → datasets.id
+2. TrainingJob.dataset_snapshot_id → datasets.id
+3. Invitation.dataset_id → datasets.id (협업 초대 시 dataset 공유)
+4. DatasetPermission.dataset_id → datasets.id
+5. User.owned_datasets → datasets (relationship)
+```
+
+**분석 스크립트:**
+```bash
+cd platform/backend
+python analyze_dataset_usage.py
+
+# Output:
+# === Foreign Key Relationships ===
+# Tables referencing 'datasets' table: 4
+#   training_jobs
+#     Columns: ['dataset_id', 'dataset_snapshot_id'] -> datasets.['id']
+#   invitations
+#     Columns: ['dataset_id'] -> datasets.['id']
+#   dataset_permissions
+#     Columns: ['dataset_id'] -> datasets.['id']
+```
+
+**기존 Platform DB 데이터:**
+```
+Total datasets in DB: 3
+- sample-det-coco32: Storage Type = minio (legacy)
+- sample-det-coco128: Storage Type = minio (legacy)
+- det-mvtec-ad: Storage Type = minio (legacy)
+```
+
+**R2 실제 데이터:**
+```
+Total datasets in R2: 1
+- ds_c75023ca76d7448b: mvtec-bottle-detection (1000 images, managed by Labeler)
+```
+
+### 2.5.2 Labeler API 요구사항 정의 (Day 2-3)
+
+**Labeler 팀에 전달할 API 명세:**
+
+#### Essential Endpoints
+
+**1. GET /api/v1/datasets/{dataset_id}**
+단일 dataset 메타데이터 조회.
+
+```json
+// Response
+{
+  "id": "ds_c75023ca76d7448b",
+  "name": "mvtec-bottle-detection",
+  "description": "MVTec AD bottle detection dataset",
+  "format": "coco",
+  "labeled": true,
+  "storage_type": "r2",
+  "storage_path": "datasets/ds_c75023ca76d7448b/",
+  "visibility": "public",
+  "owner_id": 1,
+  "num_classes": 2,
+  "num_images": 1000,
+  "class_names": ["broken", "normal"],
+  "tags": ["mvtec", "bottle", "detection"],
+  "created_at": "2025-11-20T10:00:00Z",
+  "updated_at": "2025-11-25T15:30:00Z"
+}
+```
+
+**2. GET /api/v1/datasets**
+Dataset 목록 조회 (필터링 지원).
+
+```python
+# Query Parameters
+- user_id: int (optional) - 특정 사용자 소유 dataset만
+- visibility: str (optional) - public, private, organization
+- labeled: bool (optional) - annotation 완료 여부
+- tags: List[str] (optional) - 태그 필터
+- format: str (optional) - coco, yolo, voc 등
+- page: int = 1
+- limit: int = 20
+```
+
+**3. POST /api/v1/datasets/{dataset_id}/snapshots**
+Dataset snapshot 생성 (training job 재현성 보장).
+
+```json
+// Request
+{
+  "version_tag": "v1.0-training-20251127",
+  "created_by_user_id": 42,
+  "notes": "Snapshot for Training Job #123"
+}
+
+// Response
+{
+  "snapshot_id": "snap_abc123",
+  "dataset_id": "ds_c75023ca76d7448b",
+  "version_tag": "v1.0-training-20251127",
+  "created_at": "2025-11-27T10:00:00Z",
+  "storage_path": "snapshots/snap_abc123/"
+}
+```
+
+**4. POST /api/v1/datasets/{dataset_id}/download-url**
+Presigned download URL 생성.
+
+```json
+// Request
+{
+  "expires_in": 3600,  // seconds
+  "user_id": 42
+}
+
+// Response
+{
+  "download_url": "https://r2.cloudflarestorage.com/...?signature=...",
+  "expires_at": "2025-11-27T11:00:00Z"
+}
+```
+
+**5. GET /api/v1/datasets/{dataset_id}/permissions/{user_id}**
+사용자 접근 권한 확인.
+
+```json
+// Response
+{
+  "has_access": true,
+  "permission_level": "read_write",  // read_only, read_write, admin
+  "granted_at": "2025-11-20T10:00:00Z"
+}
+```
+
+**6. POST /api/v1/datasets/batch**
+Bulk metadata 조회 (성능 최적화).
+
+```json
+// Request
+{
+  "dataset_ids": ["ds_abc", "ds_def", "ds_ghi"]
+}
+
+// Response
+{
+  "datasets": [
+    { "id": "ds_abc", "name": "...", ... },
+    { "id": "ds_def", "name": "...", ... }
+  ],
+  "not_found": ["ds_ghi"]
+}
+```
+
+#### Authentication & Security
+
+**Service-to-Service Authentication:**
+```python
+# Platform → Labeler 요청
+headers = {
+    "Authorization": f"Bearer {LABELER_SERVICE_KEY}",
+    "X-Request-ID": str(uuid.uuid4())
+}
+```
+
+**Rate Limiting:**
+- Per service: 1000 req/min
+- Per user: 100 req/min
+
+**Error Handling:**
+```json
+// 404 Not Found
+{
+  "error": "dataset_not_found",
+  "message": "Dataset ds_xyz does not exist",
+  "dataset_id": "ds_xyz"
+}
+
+// 403 Forbidden
+{
+  "error": "permission_denied",
+  "message": "User does not have access to this dataset",
+  "required_permission": "read"
+}
+```
+
+### 2.5.3 Platform Backend LabelerClient 구현 (Day 4-5)
+
+**목표**: Platform에서 Labeler API를 호출하는 클라이언트 wrapper 구현.
+
+**구현 파일**: `platform/backend/app/clients/labeler_client.py`
+
+```python
+from typing import List, Optional
+import httpx
+from app.core.config import settings
+
+class LabelerClient:
+    def __init__(self):
+        self.base_url = settings.LABELER_API_URL
+        self.headers = {
+            "Authorization": f"Bearer {settings.LABELER_SERVICE_KEY}",
+        }
+        self.client = httpx.AsyncClient(
+            base_url=self.base_url,
+            headers=self.headers,
+            timeout=30.0
+        )
+
+    async def get_dataset(self, dataset_id: str) -> dict:
+        """단일 dataset 조회"""
+        response = await self.client.get(f"/api/v1/datasets/{dataset_id}")
+        response.raise_for_status()
+        return response.json()
+
+    async def list_datasets(
+        self,
+        user_id: Optional[int] = None,
+        visibility: Optional[str] = None,
+        labeled: Optional[bool] = None,
+        page: int = 1,
+        limit: int = 20
+    ) -> dict:
+        """Dataset 목록 조회"""
+        params = {"page": page, "limit": limit}
+        if user_id:
+            params["user_id"] = user_id
+        if visibility:
+            params["visibility"] = visibility
+        if labeled is not None:
+            params["labeled"] = labeled
+
+        response = await self.client.get("/api/v1/datasets", params=params)
+        response.raise_for_status()
+        return response.json()
+
+    async def create_snapshot(
+        self,
+        dataset_id: str,
+        version_tag: str,
+        user_id: int,
+        notes: Optional[str] = None
+    ) -> dict:
+        """Dataset snapshot 생성"""
+        payload = {
+            "version_tag": version_tag,
+            "created_by_user_id": user_id,
+            "notes": notes
+        }
+        response = await self.client.post(
+            f"/api/v1/datasets/{dataset_id}/snapshots",
+            json=payload
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def get_download_url(self, dataset_id: str, user_id: int) -> str:
+        """Presigned download URL 생성"""
+        payload = {"expires_in": 3600, "user_id": user_id}
+        response = await self.client.post(
+            f"/api/v1/datasets/{dataset_id}/download-url",
+            json=payload
+        )
+        response.raise_for_status()
+        return response.json()["download_url"]
+
+    async def check_permission(self, dataset_id: str, user_id: int) -> bool:
+        """사용자 접근 권한 확인"""
+        response = await self.client.get(
+            f"/api/v1/datasets/{dataset_id}/permissions/{user_id}"
+        )
+        if response.status_code == 404:
+            return False
+        response.raise_for_status()
+        return response.json()["has_access"]
+
+# Singleton instance
+labeler_client = LabelerClient()
+```
+
+**환경 변수 설정:**
+```bash
+# .env
+LABELER_API_URL=http://localhost:8020  # 로컬
+# LABELER_API_URL=https://labeler.railway.app  # Production
+LABELER_SERVICE_KEY=<strong-secret-key>
+```
+
+### 2.5.4 Platform API 엔드포인트 수정 (Day 6-7)
+
+**수정 필요한 엔드포인트:**
+
+**1. GET /api/v1/datasets/available**
+기존: Platform DB에서 직접 조회
+변경: Labeler API 프록시
+
+```python
+# platform/backend/app/api/datasets.py
+
+@router.get("/available", response_model=List[DatasetInfo])
+async def list_available_datasets(
+    current_user: User = Depends(get_current_user),
+    visibility: Optional[str] = None,
+    labeled: Optional[bool] = None
+):
+    """List available datasets from Labeler service"""
+    try:
+        result = await labeler_client.list_datasets(
+            user_id=current_user.id,
+            visibility=visibility,
+            labeled=labeled
+        )
+        return result["datasets"]
+    except httpx.HTTPError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch datasets from Labeler: {str(e)}"
+        )
+```
+
+**2. GET /api/v1/datasets/{dataset_id}**
+```python
+@router.get("/{dataset_id}", response_model=DatasetInfo)
+async def get_dataset(
+    dataset_id: str,
+    current_user: User = Depends(get_current_user)
+):
+    """Get dataset metadata from Labeler service"""
+    # Check permission
+    has_access = await labeler_client.check_permission(dataset_id, current_user.id)
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Fetch metadata
+    try:
+        return await labeler_client.get_dataset(dataset_id)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        raise
+```
+
+**3. POST /api/v1/training (TrainingJob 생성 시 dataset validation)**
+```python
+@router.post("/training", response_model=TrainingJobResponse)
+async def create_training_job(
+    config: TrainingConfigCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Validate dataset exists and user has access
+    dataset = await labeler_client.get_dataset(config.dataset_id)
+    has_access = await labeler_client.check_permission(
+        config.dataset_id,
+        current_user.id
+    )
+    if not has_access:
+        raise HTTPException(status_code=403, detail="No access to dataset")
+
+    # Create snapshot for reproducibility
+    snapshot = await labeler_client.create_snapshot(
+        dataset_id=config.dataset_id,
+        version_tag=f"training-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}",
+        user_id=current_user.id,
+        notes=f"Snapshot for training job"
+    )
+
+    # Create training job with snapshot_id
+    job = TrainingJob(
+        owner_id=current_user.id,
+        project_id=config.project_id,
+        dataset_id=config.dataset_id,
+        dataset_snapshot_id=snapshot["snapshot_id"],
+        ...
+    )
+    db.add(job)
+    db.commit()
+    return job
+```
+
+### 2.5.5 Platform DB Schema 마이그레이션 (Day 8)
+
+**목표**: Platform DB의 Dataset 테이블을 legacy로 마킹하고, FK 관계만 유지.
+
+**Option 1: Dataset 테이블 유지 (권장)**
+- FK 관계 유지를 위해 테이블은 남겨둠
+- 더 이상 신규 데이터 추가하지 않음
+- 메타데이터 컬럼은 nullable로 변경 (향후 삭제 가능)
+
+```python
+# Migration script
+from alembic import op
+import sqlalchemy as sa
+
+def upgrade():
+    # Make metadata columns nullable
+    op.alter_column('datasets', 'name', nullable=True)
+    op.alter_column('datasets', 'format', nullable=True)
+    op.alter_column('datasets', 'storage_type', nullable=True)
+
+    # Add migration flag
+    op.add_column('datasets', sa.Column('is_legacy', sa.Boolean(), default=True))
+
+    # Mark existing datasets as legacy
+    op.execute("UPDATE datasets SET is_legacy = true")
+```
+
+**Option 2: Dataset 테이블 완전 제거 (고급)**
+- FK 제약조건을 모두 해제
+- dataset_id는 String(UUID)로만 저장 (FK 아님)
+- Labeler에서 dataset 삭제 시 Platform에서 orphan 레코드 발생 가능
+
+### 2.5.6 통합 테스트 (Day 9-10)
+
+**테스트 시나리오:**
+
+**1. Dataset 조회 흐름**
+```bash
+# Frontend → Platform API → Labeler API → R2
+GET /api/v1/datasets/available
+→ Platform calls Labeler GET /api/v1/datasets
+→ Labeler queries metadata from DB + R2
+→ Returns dataset list to Platform
+→ Platform returns to Frontend
+```
+
+**2. Training Job 생성 흐름**
+```bash
+# Dataset snapshot 생성 후 training
+POST /api/v1/training
+→ Platform calls Labeler GET /api/v1/datasets/{id}
+→ Platform calls Labeler POST /api/v1/datasets/{id}/snapshots
+→ Platform creates TrainingJob with snapshot_id
+→ Training downloads dataset from R2 using presigned URL
+```
+
+**3. 권한 체크 흐름**
+```bash
+# User가 private dataset 접근 시도
+GET /api/v1/datasets/{private_dataset_id}
+→ Platform calls Labeler GET /api/v1/datasets/{id}/permissions/{user_id}
+→ Labeler checks DatasetPermission table
+→ Returns 403 if no permission
+```
+
+**성능 검증:**
+- Dataset 목록 조회 시간: < 500ms (20개 기준)
+- Single dataset 조회 시간: < 200ms
+- Snapshot 생성 시간: < 1s
+- Presigned URL 생성 시간: < 100ms
+
+**에러 처리 검증:**
+- Labeler API 응답 없음 → 500 error with retry logic
+- Dataset not found → 404 error
+- Permission denied → 403 error
+
+### 2.5.7 문서화 및 Labeler 팀 전달 (Day 10)
+
+**전달 문서:**
+1. `docs/integration/LABELER_DATASET_API_REQUIREMENTS.md` (이미 작성 완료)
+2. Platform-Labeler 통합 테스트 결과
+3. 예상 트래픽 및 SLA 요구사항
+
+**SLA 요구사항:**
+- Availability: 99.9% (월 43분 다운타임 허용)
+- Response time p95: < 500ms
+- Error rate: < 0.1%
+
+**예상 트래픽 (월):**
+- Dataset 조회: ~100K requests
+- Snapshot 생성: ~5K requests
+- Permission 체크: ~50K requests
+
+### 2.5.8 롤백 계획
+
+**Rollback Trigger:**
+- Labeler API 장애가 1시간 이상 지속
+- Dataset 조회 성공률 < 95%
+
+**Rollback 절차:**
+```bash
+# 1. Platform API를 legacy Platform DB 조회로 롤백
+git revert <labeler-integration-commit>
+
+# 2. Platform DB에 R2 dataset 임시 등록
+python platform/backend/register_r2_dataset.py
+
+# 3. Frontend 재배포 (API 변경 없음)
+
+# 4. Labeler 팀에 이슈 리포트
+```
+
+### 2.5.9 Migration Checklist
+
+**Labeler 팀 작업:**
+- [ ] Labeler API 10개 엔드포인트 구현
+- [ ] Service-to-Service 인증 구현
+- [ ] Rate limiting 설정
+- [ ] 통합 테스트 환경 구축
+- [ ] Production 배포
+
+**Platform 팀 작업:**
+- [x] Platform DB Dataset FK 분석 완료
+- [x] Labeler API 요구사항 문서 작성
+- [ ] LabelerClient 구현
+- [ ] Platform API 엔드포인트 수정
+- [ ] Platform DB Schema 마이그레이션
+- [ ] 통합 테스트 실행
+- [ ] E2E 테스트 업데이트
+
+**협업 작업:**
+- [ ] Staging 환경에서 통합 테스트
+- [ ] 성능 검증
+- [ ] Production 배포 계획 수립
+- [ ] 모니터링 대시보드 설정
 
 ---
 
@@ -827,6 +1377,13 @@ rclone sync r2:vision-platform-datasets s3-glacier:backups/datasets
 - [x] Dataset 업로드/다운로드 예시 코드
 - [x] 통합 테스트 시나리오
 
+**Stage 2.5 완료 후 공유:**
+- [x] Labeler API 요구사항 문서 (`docs/integration/LABELER_DATASET_API_REQUIREMENTS.md`)
+- [x] Platform DB Dataset FK 분석 결과
+- [ ] Platform LabelerClient 참고 구현
+- [ ] 통합 테스트 시나리오
+- [ ] 예상 트래픽 및 SLA 요구사항
+
 ### Platform 팀 독립 작업 확인
 
 **Stage 3 시작 조건:**
@@ -856,6 +1413,15 @@ rclone sync r2:vision-platform-datasets s3-glacier:backups/datasets
 - ✅ Platform Training job R2 dataset 사용 성공
 - ✅ Labeler annotation R2 업로드 성공
 - ✅ MinIO 대비 성능 차이 < 20%
+
+### Stage 2.5 성공 기준
+- ✅ Platform DB Dataset FK 분석 완료
+- ✅ Labeler API 요구사항 문서 작성 완료
+- ✅ Labeler 팀 API 구현 완료 (10개 엔드포인트)
+- ✅ Platform LabelerClient 구현 및 테스트 통과
+- ✅ Platform API 엔드포인트 Labeler API 프록시로 전환 완료
+- ✅ 통합 테스트 모두 통과
+- ✅ 성능 목표 달성 (Dataset 조회 p95 < 500ms)
 
 ### Stage 3 성공 기준
 - ✅ Phase 10 Frontend 완료 (Training SDK UI)
