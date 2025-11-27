@@ -1,0 +1,128 @@
+# ClearML Server Docker Compose Configuration
+# ClearML: Experiment tracking, model registry, and metrics visualization
+# This replaces MLflow in Phase 12.2
+
+services:
+  # Elasticsearch (ClearML dependency)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.9
+    container_name: clearml-elastic
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - cluster.name=clearml
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - clearml_elastic_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      clearml:
+        aliases:
+          - elastic
+
+  # MongoDB (ClearML dependency)
+  mongo:
+    image: mongo:7.0
+    container_name: clearml-mongo
+    restart: unless-stopped
+    volumes:
+      - clearml_mongo_data:/data/db
+    ports:
+      - "27018:27017"  # Avoid conflict with existing MongoDB
+    networks:
+      clearml:
+        aliases:
+          - mongo
+
+  # Redis (ClearML dependency)
+  redis:
+    image: redis:7.2-alpine
+    container_name: clearml-redis
+    restart: unless-stopped
+    volumes:
+      - clearml_redis_data:/data
+    ports:
+      - "6380:6379"  # Avoid conflict with existing Redis
+    networks:
+      clearml:
+        aliases:
+          - redis
+
+  # ClearML API Server
+  apiserver:
+    image: allegroai/clearml:latest
+    container_name: clearml-apiserver
+    restart: unless-stopped
+    command: apiserver
+    depends_on:
+      - elasticsearch
+      - mongo
+      - redis
+    environment:
+      CLEARML_ELASTIC_SERVICE_HOST: elasticsearch
+      CLEARML_ELASTIC_SERVICE_PORT: 9200
+      CLEARML_MONGODB_SERVICE_HOST: mongo
+      CLEARML_MONGODB_SERVICE_PORT: 27017
+      CLEARML_REDIS_SERVICE_HOST: redis
+      CLEARML_REDIS_SERVICE_PORT: 6379
+      CLEARML_SERVER_DEPLOYMENT_TYPE: standalone
+    volumes:
+      - clearml_api_logs:/var/log/clearml
+      - clearml_api_config:/opt/clearml/config
+    ports:
+      - "8008:8008"
+    networks:
+      clearml:
+        aliases:
+          - apiserver
+
+  # ClearML Web Server
+  webserver:
+    image: allegroai/clearml:latest
+    container_name: clearml-webserver
+    restart: unless-stopped
+    command: webserver
+    depends_on:
+      - apiserver
+    environment:
+      CLEARML_API_HOST: http://apiserver:8008
+    ports:
+      - "8080:80"
+    networks:
+      clearml:
+        aliases:
+          - webserver
+
+  # ClearML File Server
+  fileserver:
+    image: allegroai/clearml:latest
+    container_name: clearml-fileserver
+    restart: unless-stopped
+    command: fileserver
+    volumes:
+      - clearml_fileserver_data:/mnt/fileserver
+    ports:
+      - "8081:8081"
+    networks:
+      clearml:
+        aliases:
+          - fileserver
+
+volumes:
+  clearml_elastic_data:
+  clearml_mongo_data:
+  clearml_redis_data:
+  clearml_api_logs:
+  clearml_api_config:
+  clearml_fileserver_data:
+
+networks:
+  clearml:
+    driver: bridge
