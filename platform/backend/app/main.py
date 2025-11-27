@@ -65,17 +65,27 @@ async def startup_event():
         # Initialize Session Store
         session_store = RedisSessionStore(redis_manager)
 
-        print(f"[STARTUP] ✓ Redis connected: {redis_url}")
+        print(f"[STARTUP] Redis connected: {redis_url}")
     except Exception as e:
-        print(f"[STARTUP] ⚠️  Redis connection failed: {e}")
+        print(f"[STARTUP] WARNING: Redis connection failed: {e}")
         print("[STARTUP] Application will continue without Redis (graceful degradation)")
         redis_manager = None
         session_store = None
 
+    # Initialize Temporal client (Phase 12: Workflow Orchestration)
+    print("[STARTUP] Connecting to Temporal...")
+    try:
+        from app.core.temporal_client import get_temporal_client
+        temporal_client = await get_temporal_client()
+        print(f"[STARTUP] Temporal connected: {settings.TEMPORAL_HOST}")
+    except Exception as e:
+        print(f"[STARTUP] Temporal connection failed: {e}")
+        print("[STARTUP] Application will continue without Temporal (workflows disabled)")
+
+
     print("[STARTUP] Running database migrations...")
     try:
         from sqlalchemy import create_engine, text, inspect
-        from app.core.config import settings
 
         db_url = settings.DATABASE_URL
         engine = create_engine(
@@ -133,6 +143,30 @@ async def startup_event():
     except Exception as e:
         print(f"[WARNING] Migration failed: {e}")
         print("[INFO] Continuing with startup...")
+
+# Shutdown event to cleanup resources
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on application shutdown."""
+    global redis_manager
+
+    # Close Temporal client
+    print("[SHUTDOWN] Closing Temporal client connection...")
+    try:
+        from app.core.temporal_client import close_temporal_client
+        await close_temporal_client()
+        print("[SHUTDOWN] Temporal client closed")
+    except Exception as e:
+        print(f"[SHUTDOWN] Error closing Temporal client: {e}")
+
+    # Close Redis if initialized
+    if redis_manager:
+        print("[SHUTDOWN] Closing Redis connection...")
+        try:
+            await redis_manager.close()
+            print("[SHUTDOWN] Redis connection closed")
+        except Exception as e:
+            print(f"[SHUTDOWN] Error closing Redis: {e}")
 
 # Include routers
 app.include_router(auth.router, prefix=f"{settings.API_V1_PREFIX}/auth", tags=["auth"])
@@ -213,11 +247,11 @@ async def start_background_tasks():
     try:
         # Initialize Platform DB (projects, datasets, training jobs, etc.)
         init_db()
-        print("[STARTUP] ✓ Platform DB tables initialized")
+        print("[STARTUP] Platform DB tables initialized")
 
         # Initialize Shared User DB (users, organizations, invitations, etc.)
         init_user_db()
-        print("[STARTUP] ✓ Shared User DB tables initialized")
+        print("[STARTUP] Shared User DB tables initialized")
     except Exception as e:
         print(f"[STARTUP] Database initialization error: {e}")
         # Don't crash the app if tables already exist
@@ -241,7 +275,7 @@ async def start_background_tasks():
             user_db.add(admin_user)
             user_db.commit()
             print(f"[STARTUP] Created default admin user in Shared User DB: {admin_email} / {admin_password}")
-            print("[STARTUP] ⚠️  IMPORTANT: Change the default password after first login!")
+            print("[STARTUP] WARNING: IMPORTANT: Change the default password after first login!")
         else:
             print(f"[STARTUP] Found {user_count} existing user(s) in Shared User DB")
 

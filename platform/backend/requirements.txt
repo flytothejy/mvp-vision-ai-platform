@@ -18,6 +18,9 @@ google-generativeai>=0.3.0
 python-socketio==5.10.0
 websockets==12.0
 
+# Workflow Orchestration (Phase 12)
+temporalio==1.11.0
+
 # Redis (State Management & Pub/Sub)
 redis[hiredis]==5.0.1
 
