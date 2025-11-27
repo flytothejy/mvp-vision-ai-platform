@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 98% (242/257 tasks)
-**최종 업데이트**: 2025-11-27 (Phase 12 진행중: Temporal Workflow & TrainingManager 완료)
+**총 진행률**: 98% (245/257 tasks)
+**최종 업데이트**: 2025-11-27 (Phase 12 진행중: Temporal Workflow & API Integration 완료)
 
 ---
 
@@ -23,7 +23,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 67% | Tier 1-2 완료, Tier 3-4 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
-| 12. Temporal Orchestration & Backend Modernization | 🔄 35% | Temporal Workflow & TrainingManager 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-35) |
+| 12. Temporal Orchestration & Backend Modernization | 🔄 42% | Temporal Workflow & API Integration 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-42) |
 
 ---
 
@@ -986,7 +986,7 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
 
-## Phase 12: Temporal Orchestration & Backend Modernization (35%)
+## Phase 12: Temporal Orchestration & Backend Modernization (42%)
 
 **브랜치**: `feature/phase-12-temporal-orchestration`
 
@@ -1372,7 +1372,7 @@ poetry run python -m app.workflows.worker
 
 ---
 
-#### 12.0.5 API Integration ⬜
+#### 12.0.5 API Integration ✅
 
 **Training API 업데이트**:
 ```python
@@ -1474,12 +1474,15 @@ def downgrade():
 ```
 
 **Checklist**:
-- [ ] `create_training_job()` Temporal 연동
-- [ ] `cancel_training_job()` Temporal 연동
-- [ ] Database migration 생성 및 실행
-- [ ] API tests 업데이트
-- [ ] Temporal UI에서 workflow 실행 확인
+- [x] `start_training_job()` Temporal 연동 (executor logic → Temporal Workflow)
+- [x] Database migration 생성 및 실행 (migrate_add_workflow_id.py)
+- [x] workflow_id 필드 추가 (TrainingJob 모델)
+- [ ] `cancel_training_job()` Temporal 연동 (추후 구현)
+- [ ] API tests 업데이트 (추후 구현)
+- [ ] Temporal UI에서 workflow 실행 확인 (다음 단계)
 
+**완료**: 2025-11-27
+**커밋**: cfa8010
 **예상 시간**: 1일
 
 ---
