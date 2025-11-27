@@ -780,13 +780,14 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                     Grafana
                   </a>
                   <a
-                    href={`${process.env.NEXT_PUBLIC_MLFLOW_URL || 'http://localhost:30500'}/#/experiments/1/runs?searchFilter=tags.mlflow.runName%20%3D%20%22job-${job.id}%22`}
+                    href={`${process.env.NEXT_PUBLIC_CLEARML_WEB_URL || 'http://localhost:8080'}/projects/*/experiments/${job.clearml_task_id || ''}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-700 hover:underline flex items-center gap-1"
+                    className="text-xs text-purple-600 hover:text-purple-700 hover:underline flex items-center gap-1"
+                    title={job.clearml_task_id ? `Open ClearML Task: ${job.clearml_task_id}` : 'ClearML task not yet created'}
                   >
                     <ExternalLink className="w-3 h-3" />
-                    MLflow
+                    ClearML
                   </a>
                 </div>
               </div>
