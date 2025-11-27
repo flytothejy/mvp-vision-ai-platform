@@ -36,7 +36,6 @@ Platform Backend에서 Dataset 테이블을 참조하는 곳:
 | 테이블/모델 | FK 필드 | 용도 |
 |------------|---------|------|
 | **TrainingJob** | `dataset_id` | 학습에 사용할 데이터셋 참조 |
-| **TrainingJob** | `dataset_snapshot_id` | 불변 스냅샷 참조 (재현성) |
 | **Invitation** | `dataset_id` | 데이터셋 협업 초대 |
 | **DatasetPermission** | `dataset_id` | 데이터셋 접근 권한 관리 |
 | **User** | `owned_datasets` | 사용자 소유 데이터셋 관계 |
@@ -44,7 +43,8 @@ Platform Backend에서 Dataset 테이블을 참조하는 곳:
 **핵심 요구사항**:
 - Platform은 `dataset_id` (UUID)만 저장
 - 실제 데이터셋 메타데이터는 Labeler API로 조회
-- 권한 확인, 스냅샷 생성 등도 Labeler API 사용
+- 권한 확인도 Labeler API 사용
+- **Snapshot 관리는 Platform의 책임** (Labeler API 범위 밖)
 
 ---
 
@@ -85,9 +85,7 @@ Authorization: Bearer {platform_service_token}
   "created_at": "2025-11-20T10:00:00Z",
   "updated_at": "2025-11-27T09:30:00Z",
   "version": 1,
-  "content_hash": "sha256:abc123...",
-  "is_snapshot": false,
-  "parent_dataset_id": null
+  "content_hash": "sha256:abc123..."
 }
 ```
 
@@ -179,88 +177,9 @@ Authorization: Bearer {platform_service_token}
 
 ---
 
-### 2.2 Dataset 스냅샷 관리
+### 2.2 Dataset 다운로드 URL 생성
 
-#### 2.2.1 스냅샷 생성
-
-**Endpoint**: `POST /api/v1/datasets/{dataset_id}/snapshots`
-
-**목적**: Training Job 시작 시 데이터셋의 불변 스냅샷 생성 (재현성 보장)
-
-**Request**:
-```http
-POST /api/v1/datasets/ds_c75023ca76d7448b/snapshots HTTP/1.1
-Host: labeler-api.example.com
-Authorization: Bearer {platform_service_token}
-Content-Type: application/json
-
-{
-  "version_tag": "v1.0-training-20251127",
-  "created_by_user_id": 42,
-  "created_by_service": "platform",
-  "notes": "Snapshot for Training Job #123"
-}
-```
-
-**Response** (201 Created):
-```json
-{
-  "snapshot_id": "ds_c75023ca76d7448b_snapshot_abc123",
-  "parent_dataset_id": "ds_c75023ca76d7448b",
-  "version_tag": "v1.0-training-20251127",
-  "is_snapshot": true,
-  "snapshot_created_at": "2025-11-27T10:15:00Z",
-  "content_hash": "sha256:def456...",
-  "storage_path": "datasets/ds_c75023ca76d7448b_snapshot_abc123/",
-  "num_images": 1000,
-  "num_classes": 2,
-  "class_names": ["broken", "normal"]
-}
-```
-
-**Notes**:
-- 스냅샷은 읽기 전용 (immutable)
-- 원본 데이터셋이 변경되어도 영향받지 않음
-- Training Job은 `dataset_snapshot_id` 참조
-
----
-
-#### 2.2.2 스냅샷 목록 조회
-
-**Endpoint**: `GET /api/v1/datasets/{dataset_id}/snapshots`
-
-**목적**: 특정 데이터셋의 모든 스냅샷 조회
-
-**Request**:
-```http
-GET /api/v1/datasets/ds_c75023ca76d7448b/snapshots HTTP/1.1
-Host: labeler-api.example.com
-Authorization: Bearer {platform_service_token}
-```
-
-**Response** (200 OK):
-```json
-{
-  "parent_dataset_id": "ds_c75023ca76d7448b",
-  "total_snapshots": 5,
-  "snapshots": [
-    {
-      "snapshot_id": "ds_c75023ca76d7448b_snapshot_abc123",
-      "version_tag": "v1.0-training-20251127",
-      "snapshot_created_at": "2025-11-27T10:15:00Z",
-      "created_by_user_id": 42,
-      "num_images": 1000
-    },
-    ...
-  ]
-}
-```
-
----
-
-### 2.3 Dataset 다운로드 URL 생성
-
-#### 2.3.1 Presigned URL 생성 (R2 다운로드)
+#### 2.2.1 Presigned URL 생성 (R2 다운로드)
 
 **Endpoint**: `POST /api/v1/datasets/{dataset_id}/download-url`
 
@@ -303,9 +222,9 @@ Content-Type: application/json
 
 ---
 
-### 2.4 Dataset 메타데이터 조회 (Bulk)
+### 2.3 Dataset 메타데이터 조회 (Bulk)
 
-#### 2.4.1 여러 데이터셋 조회 (Batch)
+#### 2.3.1 여러 데이터셋 조회 (Batch)
 
 **Endpoint**: `POST /api/v1/datasets/batch`
 
@@ -371,7 +290,7 @@ Content-Type: application/json
 
 {
   "service_name": "vision-platform",
-  "scopes": ["datasets:read", "datasets:snapshot", "datasets:download"]
+  "scopes": ["datasets:read", "datasets:download", "datasets:permissions"]
 }
 ```
 
@@ -380,7 +299,7 @@ Content-Type: application/json
 {
   "service_account_id": "sa_platform_12345",
   "api_key": "labeler_service_key_abc123def456",
-  "scopes": ["datasets:read", "datasets:snapshot", "datasets:download"],
+  "scopes": ["datasets:read", "datasets:download", "datasets:permissions"],
   "expires_at": null
 }
 ```
@@ -474,18 +393,16 @@ sequenceDiagram
     Platform API->>Labeler API: GET /datasets/ds_c75023ca76d7448b
     Labeler API->>Labeler DB: SELECT * FROM datasets
     Labeler DB-->>Labeler API: Dataset metadata
-    Labeler API-->>Platform API: {name, format, num_images, ...}
+    Labeler API-->>Platform API: {name, format, storage_path, ...}
 
-    Platform API->>Labeler API: POST /datasets/ds_c75023ca76d7448b/snapshots
-    Labeler API->>R2 Storage: Create snapshot copy
-    Labeler API->>Labeler DB: INSERT snapshot
-    Labeler API-->>Platform API: {snapshot_id: "ds_..._snapshot_abc"}
+    Platform API->>Labeler API: GET /datasets/.../permissions/{user_id}
+    Labeler API-->>Platform API: {has_access: true}
 
-    Platform API->>Platform DB: INSERT training_job<br/>(dataset_snapshot_id)
+    Platform API->>R2 Storage: Create snapshot copy<br/>(Platform이 직접 접근)
+    R2 Storage-->>Platform API: Snapshot created
+
+    Platform API->>Platform DB: INSERT training_job<br/>(dataset_id, snapshot_id)
     Platform DB-->>Platform API: job_id: 123
-
-    Platform API->>Labeler API: POST /datasets/.../download-url
-    Labeler API-->>Platform API: {download_url: "https://..."}
 
     Platform API-->>User: {job_id: 123, status: "pending"}
 ```
@@ -516,7 +433,6 @@ sequenceDiagram
 | 404 | `DATASET_NOT_FOUND` | Dataset ID not found |
 | 403 | `ACCESS_DENIED` | User lacks permission |
 | 400 | `INVALID_DATASET_ID` | Malformed dataset ID |
-| 409 | `SNAPSHOT_ALREADY_EXISTS` | Snapshot with version_tag exists |
 | 429 | `RATE_LIMIT_EXCEEDED` | Too many requests |
 | 500 | `INTERNAL_ERROR` | Server error |
 | 503 | `R2_UNAVAILABLE` | R2 storage temporarily unavailable |
@@ -531,7 +447,7 @@ sequenceDiagram
 |----------|----------------------|
 | GET /datasets/{id} | < 100ms |
 | GET /datasets (list) | < 300ms |
-| POST /snapshots | < 2s (R2 copy) |
+| GET /permissions/{user_id} | < 150ms |
 | POST /download-url | < 200ms |
 | POST /batch | < 500ms (up to 50 IDs) |
 
@@ -560,7 +476,6 @@ pytest tests/integration/test_labeler_client.py -v
 # Tests:
 # - test_get_dataset_success
 # - test_get_dataset_not_found
-# - test_create_snapshot
 # - test_generate_download_url
 # - test_check_permissions
 ```

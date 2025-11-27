@@ -810,7 +810,7 @@ python platform/backend/register_r2_dataset.py
 ### 2.5.9 Migration Checklist
 
 **Labeler 팀 작업:**
-- [ ] Labeler API 10개 엔드포인트 구현
+- [ ] Labeler API 6개 엔드포인트 구현 (snapshot 제외, Platform 관리)
 - [ ] Service-to-Service 인증 구현
 - [ ] Rate limiting 설정
 - [ ] 통합 테스트 환경 구축
@@ -820,8 +820,11 @@ python platform/backend/register_r2_dataset.py
 - [x] Platform DB Dataset FK 분석 완료
 - [x] Labeler API 요구사항 문서 작성
 - [ ] LabelerClient 구현
+- [ ] Snapshot Service 구현 (R2 직접 접근, Platform DB에 snapshot 저장)
 - [ ] Platform API 엔드포인트 수정
 - [ ] Platform DB Schema 마이그레이션
+  - datasets 테이블에 `is_legacy` flag
+  - `dataset_snapshots` 테이블 신규 생성
 - [ ] 통합 테스트 실행
 - [ ] E2E 테스트 업데이트
 
@@ -1417,8 +1420,9 @@ rclone sync r2:vision-platform-datasets s3-glacier:backups/datasets
 ### Stage 2.5 성공 기준
 - ✅ Platform DB Dataset FK 분석 완료
 - ✅ Labeler API 요구사항 문서 작성 완료
-- ✅ Labeler 팀 API 구현 완료 (10개 엔드포인트)
+- ✅ Labeler 팀 API 구현 완료 (6개 엔드포인트, snapshot은 Platform 관리)
 - ✅ Platform LabelerClient 구현 및 테스트 통과
+- ✅ Platform Snapshot Service 구현 완료 (R2 직접 접근)
 - ✅ Platform API 엔드포인트 Labeler API 프록시로 전환 완료
 - ✅ 통합 테스트 모두 통과
 - ✅ 성능 목표 달성 (Dataset 조회 p95 < 500ms)

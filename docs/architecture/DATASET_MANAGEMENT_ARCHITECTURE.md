@@ -474,32 +474,36 @@ async def create_training_job(
 ### Phase 2: Labeler API Implementation (Labeler Team)
 
 **Labeler 팀 작업:**
-- [ ] 10개 API 엔드포인트 구현
+- [ ] 6개 API 엔드포인트 구현
   - GET /api/v1/datasets/{id}
   - GET /api/v1/datasets (with filters)
-  - POST /api/v1/datasets/{id}/snapshots
   - POST /api/v1/datasets/{id}/download-url
   - GET /api/v1/datasets/{id}/permissions/{user_id}
   - POST /api/v1/datasets/batch
-  - (4 additional endpoints, see LABELER_DATASET_API_REQUIREMENTS.md)
+  - (1 additional endpoint for batch permissions check)
 - [ ] Service-to-Service 인증 구현
 - [ ] Rate limiting 설정
 - [ ] 통합 테스트 환경 구축
 
-**예상 기간:** 1주
+**예상 기간:** 3-4일 (엔드포인트 축소로 단축)
 
 ### Phase 3: Platform Integration (Platform Team)
 
 **Platform 팀 작업:**
 - [ ] LabelerClient 구현 (`app/clients/labeler_client.py`)
+- [ ] Snapshot Service 구현 (`app/services/snapshot_service.py`)
+  - R2에서 직접 snapshot 생성 (dual_storage 활용)
+  - Platform DB에 `dataset_snapshots` 테이블 추가
 - [ ] Platform API 엔드포인트 수정
   - GET /api/v1/datasets/available → Labeler proxy
   - GET /api/v1/datasets/{id} → Labeler proxy
-  - POST /api/v1/training → snapshot 생성 로직 추가
-- [ ] Platform DB Schema 마이그레이션 (legacy flag 추가)
+  - POST /api/v1/training → Platform snapshot 생성 로직 추가
+- [ ] Platform DB Schema 마이그레이션
+  - datasets 테이블에 `is_legacy` flag 추가
+  - `dataset_snapshots` 테이블 신규 생성
 - [ ] 환경 변수 설정 (LABELER_API_URL, LABELER_SERVICE_KEY)
 
-**예상 기간:** 4-5일
+**예상 기간:** 5-6일 (snapshot 관리 추가로 증가)
 
 ### Phase 4: Integration Testing
 
@@ -548,8 +552,7 @@ python platform/backend/register_r2_dataset.py
 ### Labeler Team Tasks
 
 **API Implementation:**
-- [ ] Dataset CRUD endpoints
-- [ ] Snapshot management endpoints
+- [ ] Dataset CRUD endpoints (GET, POST, PUT, DELETE)
 - [ ] Permission check endpoints
 - [ ] Download URL generation endpoints
 - [ ] Batch query endpoints
@@ -569,9 +572,13 @@ python platform/backend/register_r2_dataset.py
 
 **Backend:**
 - [ ] LabelerClient implementation
+- [ ] Snapshot Service implementation (R2 직접 접근)
+- [ ] Platform DB schema migration
+  - datasets 테이블에 `is_legacy` flag
+  - `dataset_snapshots` 테이블 신규 생성
 - [ ] Platform API proxy endpoints
 - [ ] Dataset validation in training job creation
-- [ ] DB schema migration (is_legacy flag)
+- [ ] Snapshot 생성 로직 (POST /training)
 
 **Frontend:**
 - [ ] No changes required (API interface unchanged)
@@ -619,9 +626,9 @@ python platform/backend/register_r2_dataset.py
 | Operation | Volume | Avg Size |
 |-----------|--------|----------|
 | Dataset 조회 | ~100K requests | 5KB response |
-| Snapshot 생성 | ~5K requests | 1KB response |
 | Permission 체크 | ~50K requests | 0.5KB response |
 | Download URL 생성 | ~10K requests | 0.5KB response |
+| Batch query | ~5K requests | 50KB response |
 
 ### Performance Optimization
 
