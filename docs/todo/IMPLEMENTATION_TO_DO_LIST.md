@@ -1947,7 +1947,7 @@ from app.core.training_managers.subprocess_manager import get_training_subproces
 
 ---
 
-### 12.2 ClearML Migration (Day 6-9) 🔄 35%
+### 12.2 ClearML Migration (Day 6-9) 🔄 50%
 
 **목표**: MLflow → ClearML 완전 전환
 
@@ -1974,10 +1974,14 @@ from app.core.training_managers.subprocess_manager import get_training_subproces
 **완료**: 2025-11-27
 **커밋**: b5fb139
 
-#### 12.2.3 Backend API Migration (Day 7-8) 🔄 33%
-- [ ] `training.py` - MLflowService → ClearMLService
-- [ ] `experiments.py` - MLflow Experiment → ClearML Project
+#### 12.2.3 Backend API Migration (Day 7-8) 🔄 60%
+- [x] `training.py` - Add ClearML endpoints (`/clearml/metrics`, `/clearml/task`)
+- [x] `training.py` - Remove MLflow auto-linking logic
+- [ ] `experiments.py` - MLflow Experiment → ClearML Project (큰 작업, 별도 계획 필요)
 - [x] Database migration (clearml_task_id 추가) - Schema updated, migration script ready
+
+**완료**: 2025-11-27 (Training API)
+**커밋**: 98aa5c4
 
 #### 12.2.4 Temporal Activity Integration (Day 8) ⬜
 ```python
