@@ -574,7 +574,6 @@ async def restart_training_job(job_id: int, db: Session = Depends(get_db)):
     job.error_message = None
     job.final_accuracy = None
     job.process_id = None
-    job.mlflow_run_id = None  # Keep for backward compatibility (deprecated)
     job.clearml_task_id = None  # Clear ClearML task ID
 
     # Clear previous metrics
@@ -728,62 +727,6 @@ async def get_training_logs_from_loki(
         raise HTTPException(
             status_code=500,
             detail=f"Error querying Loki: {str(e)}"
-        )
-
-
-@router.get("/jobs/{job_id}/mlflow/metrics")
-async def get_mlflow_metrics(job_id: int, db: Session = Depends(get_db)):
-    """
-    Get MLflow metrics for a training job.
-
-    Returns all metrics with their history from MLflow tracking server,
-    plus primary metric information.
-    """
-    # Verify job exists
-    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Training job not found")
-
-    try:
-        from app.services.mlflow_service import MLflowService
-        mlflow_service = MLflowService(db)
-        metrics_data = mlflow_service.get_job_run_metrics(job_id)
-
-        # Add primary metric information
-        metrics_data['primary_metric'] = job.primary_metric or 'loss'
-        metrics_data['primary_metric_mode'] = job.primary_metric_mode or 'min'
-        metrics_data['task_type'] = job.task_type
-        metrics_data['framework'] = job.framework
-
-        return metrics_data
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch MLflow metrics: {str(e)}"
-        )
-
-
-@router.get("/jobs/{job_id}/mlflow/summary")
-async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
-    """
-    Get MLflow run summary for a training job.
-
-    Returns summary information including best metrics, parameters, and run status.
-    """
-    # Verify job exists
-    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
-    if not job:
-        raise HTTPException(status_code=404, detail="Training job not found")
-
-    try:
-        from app.services.mlflow_service import MLflowService
-        mlflow_service = MLflowService(db)
-        summary = mlflow_service.get_job_run_summary(job_id)
-        return summary
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to fetch MLflow summary: {str(e)}"
         )
 
 

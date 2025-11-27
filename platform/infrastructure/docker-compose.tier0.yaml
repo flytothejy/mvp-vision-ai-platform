@@ -154,7 +154,7 @@ services:
       mc mb results/training-results --ignore-existing;
       mc mb results/model-weights --ignore-existing;
       mc mb results/config-schemas --ignore-existing;
-      mc mb results/mlflow-artifacts --ignore-existing;
+      # mlflow-artifacts bucket removed - using ClearML (Phase 12.2)
       mc mb results/vision-platform-results --ignore-existing;
       echo 'Result buckets:';
       mc ls results;
@@ -167,41 +167,8 @@ services:
     networks:
       - platform-tier0
 
-  # MLflow - Experiment tracking
-  mlflow:
-    build:
-      context: ./mlflow
-      dockerfile: Dockerfile
-    image: platform-mlflow:tier0
-    container_name: platform-mlflow-tier0
-    restart: unless-stopped
-    ports:
-      - "5000:5000"
-    environment:
-      # PostgreSQL backend for experiments metadata
-      BACKEND_STORE_URI: postgresql://admin:devpass@postgres:5432/mlflow
-      # MinIO-Results for artifacts storage
-      ARTIFACT_ROOT: s3://mlflow-artifacts
-      AWS_ACCESS_KEY_ID: minioadmin
-      AWS_SECRET_ACCESS_KEY: minioadmin
-      MLFLOW_S3_ENDPOINT_URL: http://minio-results:9000
-      # MLflow server config
-      MLFLOW_TRACKING_URI: http://0.0.0.0:5000
-      MLFLOW_HOST: 0.0.0.0
-      MLFLOW_PORT: 5000
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio-results:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - platform-tier0
+  # MLflow removed - replaced by ClearML (Phase 12.2)
+  # Use infrastructure/docker-compose.clearml.yaml for ClearML services
 
   # Temporal - Workflow orchestration
   temporal:

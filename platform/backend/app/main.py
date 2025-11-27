@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
-from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, experiments, invitations, export, inference, websocket
+from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, invitations, export, inference, websocket
 
 # Redis integration (Phase 5)
 from app.services.redis_manager import RedisManager
@@ -176,7 +176,7 @@ app.include_router(validation.router, prefix=f"{settings.API_V1_PREFIX}", tags=[
 app.include_router(test_inference.router, prefix=f"{settings.API_V1_PREFIX}", tags=["test_inference"])
 app.include_router(image_tools.router, prefix=f"{settings.API_V1_PREFIX}", tags=["image_tools"])  # Image tools
 app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects", tags=["projects"])
-app.include_router(experiments.router, prefix=f"{settings.API_V1_PREFIX}", tags=["experiments"])
+# experiments.router removed - MLflow experiments replaced by ClearML Projects (Phase 12.2)
 app.include_router(invitations.router, prefix=f"{settings.API_V1_PREFIX}", tags=["invitations"])
 app.include_router(datasets.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets"])
 app.include_router(datasets_images.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-images"])
