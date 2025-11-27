@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from app.db import models
 from app.schemas import training
-from app.services.mlflow_service import MLflowService
+from app.services.clearml_service import ClearMLService
 from app.services.websocket_manager import get_websocket_manager
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class TrainingCallbackService:
     Consolidates common logic across progress, completion, and log callbacks:
     - Job validation
     - Database updates
-    - MLflow integration
+    - ClearML integration (Phase 12.2)
     - WebSocket broadcasting
     """
 
@@ -33,7 +33,7 @@ class TrainingCallbackService:
             db: Database session
         """
         self.db = db
-        self.mlflow_service = MLflowService(db)
+        self.clearml_service = ClearMLService(db)
         self.ws_manager = get_websocket_manager()
 
     def _get_job_or_404(self, job_id: int) -> models.TrainingJob:
@@ -59,91 +59,44 @@ class TrainingCallbackService:
 
         return job
 
-    def _create_mlflow_run_if_needed(self, job: models.TrainingJob) -> Optional[str]:
-        """
-        Create MLflow run if not exists.
-
-        Args:
-            job: Training job
-
-        Returns:
-            MLflow run ID or None
-        """
-        if not self.mlflow_service.mlflow_client.available:
-            return None
-
-        if job.mlflow_run_id:
-            return job.mlflow_run_id
-
-        try:
-            experiment_name = f"project-{job.project_id}"
-            run_name = f"job-{job.id}-{job.model_name}"
-            tags = {
-                "job_id": str(job.id),
-                "project_id": str(job.project_id),
-                "model_name": job.model_name,
-                "task_type": job.task_type,
-                "framework": job.framework or "unknown"
-            }
-
-            job.mlflow_run_id = self.mlflow_service.create_mlflow_run(
-                experiment_name=experiment_name,
-                run_name=run_name,
-                tags=tags
-            )
-
-            # Log training parameters on first run
-            if job.mlflow_run_id and job.training_config:
-                self.mlflow_service.log_training_params(
-                    run_id=job.mlflow_run_id,
-                    params=job.training_config
-                )
-
-            logger.info(f"[CALLBACK] Created MLflow run: {job.mlflow_run_id}")
-            return job.mlflow_run_id
-
-        except Exception as e:
-            logger.warning(f"[CALLBACK] Failed to create MLflow run: {e}")
-            return None
-
-    def _log_metrics_to_mlflow(
+    def _log_metrics_to_clearml(
         self,
         job: models.TrainingJob,
         metrics: Optional[Any],
-        step: Optional[int] = None
+        iteration: Optional[int] = None
     ) -> bool:
         """
-        Log metrics to MLflow.
+        Log metrics to ClearML.
 
         Args:
             job: Training job
             metrics: Metrics data
-            step: Training step/epoch
+            iteration: Training iteration/epoch
 
         Returns:
             True if successful, False otherwise
         """
-        if not job.mlflow_run_id or not metrics:
+        if not job.clearml_task_id or not metrics:
             return False
 
         try:
             metrics_dict = metrics.dict() if hasattr(metrics, 'dict') else {}
 
-            success = self.mlflow_service.log_training_metrics(
-                run_id=job.mlflow_run_id,
+            success = self.clearml_service.log_metrics(
+                task_id=job.clearml_task_id,
                 metrics=metrics_dict,
-                step=step
+                iteration=iteration
             )
 
             if success:
-                logger.info(f"[CALLBACK] Logged metrics to MLflow for step {step}")
+                logger.info(f"[CALLBACK] Logged metrics to ClearML for iteration {iteration}")
             else:
-                logger.warning(f"[CALLBACK] Failed to log metrics to MLflow")
+                logger.warning(f"[CALLBACK] Failed to log metrics to ClearML")
 
             return success
 
         except Exception as e:
-            logger.warning(f"[CALLBACK] MLflow logging error: {e}")
+            logger.warning(f"[CALLBACK] ClearML logging error: {e}")
             return False
 
     async def handle_progress(
@@ -211,12 +164,11 @@ class TrainingCallbackService:
             if callback.best_checkpoint_path:
                 job.best_checkpoint_path = callback.best_checkpoint_path
 
-            # MLflow integration
+            # ClearML integration (Phase 12.2)
             try:
-                self._create_mlflow_run_if_needed(job)
-                self._log_metrics_to_mlflow(job, callback.metrics, callback.current_epoch)
+                self._log_metrics_to_clearml(job, callback.metrics, callback.current_epoch)
             except Exception as e:
-                logger.warning(f"[CALLBACK] MLflow integration error (non-critical): {e}")
+                logger.warning(f"[CALLBACK] ClearML integration error (non-critical): {e}")
 
             self.db.commit()
             logger.info(f"[CALLBACK] Successfully updated job {job_id}")
@@ -325,11 +277,6 @@ class TrainingCallbackService:
             if callback.last_checkpoint_path:
                 job.last_checkpoint_path = callback.last_checkpoint_path
 
-            # Store MLflow run ID
-            if callback.mlflow_run_id:
-                job.mlflow_run_id = callback.mlflow_run_id
-                logger.info(f"[CALLBACK] Stored MLflow run ID: {callback.mlflow_run_id}")
-
             # Store error information if failed
             if callback.status == "failed" or (callback.exit_code and callback.exit_code != 0):
                 job.error_message = callback.error_message or "Training failed (no error message provided)"
@@ -345,36 +292,36 @@ class TrainingCallbackService:
                     )
                     self.db.add(log_entry)
 
-            # MLflow integration - End the run with final status
+            # ClearML integration (Phase 12.2) - Mark task as completed/failed
             try:
-                if job.mlflow_run_id and self.mlflow_service.mlflow_client.available:
+                if job.clearml_task_id:
                     # Log final metrics if provided
                     if callback.final_metrics:
                         final_metrics_dict = callback.final_metrics.dict() if hasattr(callback.final_metrics, 'dict') else {}
 
-                        success = self.mlflow_service.log_training_metrics(
-                            run_id=job.mlflow_run_id,
+                        success = self.clearml_service.log_metrics(
+                            task_id=job.clearml_task_id,
                             metrics=final_metrics_dict,
-                            step=callback.total_epochs_completed or 0
+                            iteration=callback.total_epochs_completed or 0
                         )
 
                         if success:
-                            logger.info(f"[CALLBACK] Logged final metrics to MLflow")
+                            logger.info(f"[CALLBACK] Logged final metrics to ClearML")
 
-                    # Determine MLflow run status
-                    mlflow_status = "FINISHED" if job.status == "completed" else "FAILED"
-
-                    # End the MLflow run
-                    self.mlflow_service.end_mlflow_run(
-                        run_id=job.mlflow_run_id,
-                        status=mlflow_status
-                    )
-
-                    logger.info(f"[CALLBACK] Ended MLflow run {job.mlflow_run_id} with status {mlflow_status}")
+                    # Mark task as completed or failed
+                    if job.status == "completed":
+                        self.clearml_service.mark_completed(job.clearml_task_id)
+                        logger.info(f"[CALLBACK] Marked ClearML task {job.clearml_task_id} as completed")
+                    else:
+                        self.clearml_service.mark_failed(
+                            job.clearml_task_id,
+                            error_message=job.error_message
+                        )
+                        logger.info(f"[CALLBACK] Marked ClearML task {job.clearml_task_id} as failed")
 
             except Exception as e:
-                # Graceful degradation - don't fail the callback if MLflow fails
-                logger.warning(f"[CALLBACK] MLflow end_run error (non-critical): {str(e)}")
+                # Graceful degradation - don't fail the callback if ClearML fails
+                logger.warning(f"[CALLBACK] ClearML task update error (non-critical): {str(e)}")
 
             self.db.commit()
 
@@ -394,7 +341,7 @@ class TrainingCallbackService:
                 "best_epoch": callback.best_epoch,
                 "final_checkpoint_path": callback.final_checkpoint_path,
                 "best_checkpoint_path": callback.best_checkpoint_path,
-                "mlflow_run_id": callback.mlflow_run_id,
+                "clearml_task_id": job.clearml_task_id,  # Phase 12.2: ClearML instead of MLflow
                 "error_message": callback.error_message,
             })
 
