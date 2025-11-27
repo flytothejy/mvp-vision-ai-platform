@@ -64,16 +64,16 @@ class DualStorageClient:
         self.external_bucket_datasets = os.getenv("EXTERNAL_BUCKET_DATASETS", "training-datasets")
 
         # Detect storage types for logging
-        internal_type = self._detect_storage_type(self.internal_endpoint)
-        external_type = self._detect_storage_type(self.external_endpoint)
+        self.internal_storage_type = self._detect_storage_type(self.internal_endpoint)
+        self.external_storage_type = self._detect_storage_type(self.external_endpoint)
 
         logger.info(
             f"Dual Storage initialized:\n"
-            f"  Internal ({internal_type}): {self.internal_endpoint}\n"
+            f"  Internal ({self.internal_storage_type}): {self.internal_endpoint}\n"
             f"    - Buckets: weights={self.internal_bucket_weights}, "
             f"checkpoints={self.internal_bucket_checkpoints}, "
             f"schemas={self.internal_bucket_schemas}\n"
-            f"  External ({external_type}): {self.external_endpoint}\n"
+            f"  External ({self.external_storage_type}): {self.external_endpoint}\n"
             f"    - Buckets: datasets={self.external_bucket_datasets}"
         )
 
@@ -556,6 +556,104 @@ class DualStorageClient:
         except ClientError as e:
             logger.error(f"Failed to delete dataset: {e}")
             return False
+
+    # ==========================================
+    # Presigned URL Methods (Encapsulated)
+    # ==========================================
+
+    def generate_checkpoint_presigned_url(
+        self,
+        checkpoint_key: str,
+        expiration: int = 3600,
+        method: str = "get_object"
+    ) -> Optional[str]:
+        """
+        Generate presigned URL for checkpoint access.
+
+        Args:
+            checkpoint_key: Storage key (e.g., "jobs/123/checkpoint.pth")
+            expiration: URL expiration in seconds (default: 1 hour)
+            method: 'get_object' for download, 'put_object' for upload
+
+        Returns:
+            Presigned URL or None
+        """
+        if not self.internal_client:
+            logger.error("Internal storage not initialized")
+            return None
+
+        try:
+            url = self.internal_client.generate_presigned_url(
+                method,
+                Params={
+                    "Bucket": self.internal_bucket_checkpoints,
+                    "Key": checkpoint_key
+                },
+                ExpiresIn=expiration
+            )
+            logger.info(f"Generated presigned {method} URL for checkpoint: {checkpoint_key}")
+            return url
+        except ClientError as e:
+            logger.error(f"Failed to generate presigned URL for checkpoint: {e}")
+            return None
+
+    def generate_checkpoint_upload_url(
+        self,
+        checkpoint_key: str,
+        expiration: int = 3600,
+        content_type: str = "application/octet-stream"
+    ) -> Optional[str]:
+        """
+        Generate presigned URL for checkpoint upload (PUT).
+
+        Args:
+            checkpoint_key: Storage key
+            expiration: URL expiration in seconds
+            content_type: MIME type
+
+        Returns:
+            Presigned upload URL or None
+        """
+        if not self.internal_client:
+            logger.error("Internal storage not initialized")
+            return None
+
+        try:
+            url = self.internal_client.generate_presigned_url(
+                "put_object",
+                Params={
+                    "Bucket": self.internal_bucket_checkpoints,
+                    "Key": checkpoint_key,
+                    "ContentType": content_type
+                },
+                ExpiresIn=expiration
+            )
+            logger.info(f"Generated presigned upload URL for checkpoint: {checkpoint_key}")
+            return url
+        except ClientError as e:
+            logger.error(f"Failed to generate presigned upload URL: {e}")
+            return None
+
+    def generate_checkpoint_download_url(
+        self,
+        checkpoint_key: str,
+        expiration: int = 3600
+    ) -> Optional[str]:
+        """
+        Generate presigned URL for checkpoint download (GET).
+
+        Args:
+            checkpoint_key: Storage key
+            expiration: URL expiration in seconds
+
+        Returns:
+            Presigned download URL or None
+        """
+        return self.generate_checkpoint_presigned_url(
+            checkpoint_key,
+            expiration,
+            method="get_object"
+        )
 
 
 # Global dual storage client instance

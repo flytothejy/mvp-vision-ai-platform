@@ -1606,15 +1606,11 @@ async def get_checkpoint_upload_url(
         # Generate presigned upload URL
         from app.utils.dual_storage import dual_storage
 
-        # Use boto3 client's generate_presigned_url
-        upload_url = dual_storage.internal_client.generate_presigned_url(
-            ClientMethod='put_object',
-            Params={
-                'Bucket': dual_storage.internal_bucket_checkpoints,
-                'Key': object_key,
-                'ContentType': request.content_type
-            },
-            ExpiresIn=3600  # 1 hour
+        # Use dual_storage's encapsulated method
+        upload_url = dual_storage.generate_checkpoint_upload_url(
+            checkpoint_key=object_key,
+            expiration=3600,  # 1 hour
+            content_type=request.content_type
         )
 
         if not upload_url:

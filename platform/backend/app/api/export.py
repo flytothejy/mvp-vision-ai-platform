@@ -524,13 +524,9 @@ async def get_export_download_url(
 
     # Generate presigned URL from internal storage (checkpoints)
     try:
-        download_url = dual_storage.internal_client.generate_presigned_url(
-            "get_object",
-            Params={
-                "Bucket": dual_storage.internal_bucket_checkpoints,
-                "Key": object_key
-            },
-            ExpiresIn=3600  # 1 hour
+        download_url = dual_storage.generate_checkpoint_download_url(
+            checkpoint_key=object_key,
+            expiration=3600  # 1 hour
         )
     except Exception as e:
         logger.error(f"Failed to generate presigned URL: {e}")
