@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 98% (238/253 tasks)
-**최종 업데이트**: 2025-11-24 (Phase 11 Tier 1-2 완료: PostgreSQL User DB 마이그레이션)
+**총 진행률**: 98% (242/257 tasks)
+**최종 업데이트**: 2025-11-27 (Phase 12 진행중: Temporal Workflow & TrainingManager 완료)
 
 ---
 
@@ -23,7 +23,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 67% | Tier 1-2 완료, Tier 3-4 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
-| 12. Temporal Orchestration & Backend Modernization | ⬜ 0% | Temporal Workflow 도입 및 플랫폼 현대화 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-0) |
+| 12. Temporal Orchestration & Backend Modernization | 🔄 35% | Temporal Workflow & TrainingManager 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-35) |
 
 ---
 
@@ -986,7 +986,7 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
 
-## Phase 12: Temporal Orchestration & Backend Modernization (0%)
+## Phase 12: Temporal Orchestration & Backend Modernization (35%)
 
 **브랜치**: `feature/phase-12-temporal-orchestration`
 
@@ -1006,11 +1006,11 @@ Temporal Workflow 도입으로 Training 파이프라인 현대화 및 Backend �
 
 ---
 
-### 12.0 Temporal Workflow Infrastructure (Day 1-3) ⬜
+### 12.0 Temporal Workflow Infrastructure (Day 1-3) 🔄
 
 **목표**: Temporal 기반 Training 파이프라인 구축
 
-#### 12.0.1 Temporal Client Setup ⬜
+#### 12.0.1 Temporal Client Setup ✅
 
 **Backend Temporal 연동**:
 ```python
@@ -1047,16 +1047,18 @@ TEMPORAL_TASK_QUEUE=training-tasks
 ```
 
 **Checklist**:
-- [ ] `app/core/temporal_client.py` 생성
-- [ ] Environment variables 추가
-- [ ] Startup/shutdown hooks 구현
-- [ ] Connection test
+- [x] `app/core/temporal_client.py` 생성
+- [x] Environment variables 추가 (TEMPORAL_HOST, TEMPORAL_NAMESPACE, TEMPORAL_TASK_QUEUE, TRAINING_MODE)
+- [x] Startup/shutdown hooks 구현 (main.py)
+- [x] Connection test (Docker Desktop Temporal 연결 성공)
+- [x] temporalio==1.11.0 패키지 추가
 
-**예상 시간**: 0.5일
+**완료**: 2025-11-27
+**커밋**: f163932
 
 ---
 
-#### 12.0.2 Training Workflow Definition ⬜
+#### 12.0.2 Training Workflow Definition ✅
 
 **Workflow 구현**:
 ```python
@@ -1131,17 +1133,19 @@ class TrainingWorkflow:
 ```
 
 **Checklist**:
-- [ ] `app/workflows/training_workflow.py` 생성
-- [ ] Workflow steps 정의
-- [ ] Timeout/retry policies 설정
-- [ ] Type hints 및 docstrings
-- [ ] Unit tests
+- [x] `app/workflows/training_workflow.py` 생성
+- [x] Workflow steps 정의 (5단계: validate, create_task, execute, upload, cleanup)
+- [x] Timeout/retry policies 설정 (24h max training, 5min heartbeat)
+- [x] Type hints 및 docstrings
+- [x] Activity stub 구현 (validate_dataset, create_clearml_task, execute_training, upload_final_model, cleanup_training_resources)
+- [ ] Unit tests (추후 구현)
 
-**예상 시간**: 1일
+**완료**: 2025-11-27
+**커밋**: 8931708
 
 ---
 
-#### 12.0.3 Temporal Activities ⬜
+#### 12.0.3 Temporal Worker ✅
 
 **Activity 구현**:
 ```python
@@ -1263,14 +1267,21 @@ async def cleanup_training_resources(job_id: int) -> None:
 ```
 
 **Checklist**:
-- [ ] `validate_dataset` activity 구현
-- [ ] `create_clearml_task` activity 구현
-- [ ] `execute_training` activity 구현 (heartbeat 포함)
-- [ ] `cleanup_training_resources` activity 구현
+- [x] `app/workflows/worker.py` 생성
+- [x] Temporal Client 연결
+- [x] Worker 생성 (workflows + activities 등록)
+- [x] .env 파일 로딩
+- [x] 실행 테스트 (localhost:7233 연결 성공)
+- [ ] `validate_dataset` activity 실제 구현 (stub만 존재)
+- [ ] `create_clearml_task` activity 실제 구현 (stub만 존재)
+- [ ] `execute_training` activity 실제 구현 (stub만 존재)
+- [ ] `cleanup_training_resources` activity 실제 구현 (stub만 존재)
 - [ ] Error handling 및 logging
 - [ ] Unit tests for each activity
 
-**예상 시간**: 2일
+**완료**: 2025-11-27 (Worker 생성)
+**커밋**: 8931708
+**NOTE**: Activity stub은 생성되었으나 실제 로직은 Phase 12.0.4-12.0.5에서 구현 예정
 
 ---
 
@@ -1473,11 +1484,11 @@ def downgrade():
 
 ---
 
-### 12.1 TrainingManager Abstraction (Day 4-5) ⬜
+### 12.1 TrainingManager Abstraction (Day 4-5) ✅
 
 **목표**: Subprocess와 K8s Job을 통합하는 추상 인터페이스 구현
 
-#### 12.1.1 Abstract TrainingManager ⬜
+#### 12.1.1 Abstract TrainingManager ✅
 
 **Base Class**:
 ```python
@@ -1544,7 +1555,7 @@ class TrainingManager(ABC):
 
 ---
 
-#### 12.1.2 Subprocess Implementation ⬜
+#### 12.1.2 Subprocess Implementation ✅
 
 **Subprocess Manager**:
 ```python
@@ -1654,7 +1665,7 @@ class SubprocessTrainingManager(TrainingManager):
 
 ---
 
-#### 12.1.3 Kubernetes Implementation ⬜
+#### 12.1.3 Kubernetes Implementation ✅ (STUB)
 
 **K8s Manager**:
 ```python
@@ -1809,7 +1820,7 @@ class KubernetesTrainingManager(TrainingManager):
 
 ---
 
-#### 12.1.4 Factory Pattern ⬜
+#### 12.1.4 Factory Pattern ✅
 
 **Manager Factory**:
 ```python
