@@ -1044,8 +1044,11 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
   - [x] Training API split_strategy 지원 (create/start endpoints)
   - [x] SnapshotService split_config 캡처
   - [x] SPLIT_INTEGRATION_DESIGN.md 설계 문서 작성
-- [ ] `datasets.py`에서 Dataset CRUD 엔드포인트 제거
-- [ ] `datasets.py`에서 Split 엔드포인트 리팩토링 (Labeler 통합)
+- [x] `datasets.py` 완전 재작성 (1180줄 → 506줄)
+  - [x] Dataset CRUD 엔드포인트 제거 (POST, DELETE, GET /list, /analyze, /compare)
+  - [x] Dataset 모델 의존성 제거
+  - [x] Split 엔드포인트 리팩토링 (Labeler annotations.json 통합)
+  - [x] Snapshot 엔드포인트 유지 (Platform 담당)
 - [x] Error handling 및 fallback 로직
 
 **11.5.6 Integration Testing** ⬜
@@ -1066,8 +1069,8 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cache invalidation 전략
 
 **예상 기간**: 5-6일
-**진행률**: 85% (11.5.1-11.5.5 완료, 11.5.6-11.5.7 대기 중)
-**최종 업데이트**: 2025-11-28 - Split Integration 완료 (3-Level Priority System)
+**진행률**: 95% (11.5.1-11.5.5 완료, 11.5.6-11.5.7 테스트만 남음)
+**최종 업데이트**: 2025-11-28 - datasets.py 리팩토링 완료 (1180줄 → 506줄)
 
 ## Phase 12: Temporal Orchestration & Backend Modernization (80%)
 
