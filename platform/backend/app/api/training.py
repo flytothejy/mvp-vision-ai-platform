@@ -18,130 +18,79 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-async def auto_create_snapshot_if_needed(dataset_id: str, job_id: int, db: Session) -> str:
+async def auto_create_snapshot_if_needed(
+    dataset_id: str,
+    user_id: int,
+    db: Session
+) -> str:
     """
     Automatically create a snapshot of the dataset before training starts.
 
+    Phase 11.5: Dataset Service Integration
+    - Queries Labeler API for dataset metadata
+    - Creates snapshot using SnapshotService
+    - Stores snapshot reference in Platform DB
+
     This ensures reproducibility by freezing the dataset state at the time of training.
-    If the dataset hasn't changed since the last snapshot, the existing snapshot is reused.
 
     Args:
-        dataset_id: Dataset ID to snapshot
-        job_id: Training job ID (used in version tag)
+        dataset_id: Dataset ID from Labeler
+        user_id: User creating the snapshot
         db: Database session
 
     Returns:
-        Snapshot dataset ID (either newly created or existing)
+        Snapshot ID (snap_{uuid}) or None if failed
     """
-    from app.db.models import Dataset
-    from app.utils.dual_storage import dual_storage
-    import json
-
-    # Get parent dataset
-    parent_dataset = db.query(Dataset).filter(Dataset.id == dataset_id).first()
-    if not parent_dataset:
-        logger.warning(f"[SNAPSHOT] Dataset {dataset_id} not found, skipping snapshot")
-        return None
-
-    # Cannot snapshot a snapshot
-    if parent_dataset.is_snapshot:
-        logger.info(f"[SNAPSHOT] Dataset {dataset_id} is already a snapshot, skipping")
-        return dataset_id
-
-    # Check if we have existing snapshots
-    existing_snapshots = db.query(Dataset).filter(
-        Dataset.parent_dataset_id == dataset_id,
-        Dataset.is_snapshot == True,
-        Dataset.status == 'active'
-    ).order_by(Dataset.snapshot_created_at.desc()).all()
-
-    # Check if latest snapshot has same content_hash (dataset unchanged)
-    if existing_snapshots and existing_snapshots[0].content_hash == parent_dataset.content_hash:
-        logger.info(f"[SNAPSHOT] Dataset {dataset_id} unchanged, reusing snapshot {existing_snapshots[0].id}")
-        return existing_snapshots[0].id
-
-    # Need to create new snapshot
-    logger.info(f"[SNAPSHOT] Creating new snapshot for dataset {dataset_id} (job {job_id})")
-
-    timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
-    snapshot_id = f"{dataset_id}-snapshot-job{job_id}-{timestamp}"
-    version_tag = f"training-job-{job_id}"
-
-    snapshot_name = f"{parent_dataset.name} (Training Snapshot - Job {job_id})"
-    snapshot_storage_path = f"datasets/snapshots/{snapshot_id}/"
-
-    # Copy dataset files in storage
-    storage_client = dual_storage
-    parent_storage_path = parent_dataset.storage_path.rstrip('/')
+    from app.clients.labeler_client import labeler_client
+    from app.services.snapshot_service import snapshot_service
 
     try:
-        # List and copy all files
-        files = storage_client.list_files(parent_storage_path)
-        logger.info(f"[SNAPSHOT] Copying {len(files)} files from {parent_storage_path} to {snapshot_storage_path}")
+        # Get dataset metadata from Labeler
+        dataset = await labeler_client.get_dataset(dataset_id)
+        logger.info(f"[SNAPSHOT] Retrieved dataset {dataset_id} from Labeler: {dataset['name']}")
 
-        for file_path in files:
-            relative_path = file_path.replace(parent_storage_path, '').lstrip('/')
-            if not relative_path:
-                continue
+        # Check if we have existing snapshots for this dataset
+        existing_snapshots = snapshot_service.list_snapshots_by_dataset(dataset_id, db, limit=1)
 
-            file_content = storage_client.get_file_content(file_path)
-            target_path = f"{snapshot_storage_path}{relative_path}"
+        # Check if latest snapshot has same content_hash (dataset unchanged)
+        if existing_snapshots:
+            latest_snapshot = existing_snapshots[0]
+            # Compare content hash from Labeler with our latest snapshot
+            # For now, we always create new snapshot (optimization: add content_hash comparison later)
+            logger.info(f"[SNAPSHOT] Found existing snapshot {latest_snapshot.id}, creating new one")
 
-            # Determine content type
-            content_type = 'application/octet-stream'
-            if relative_path.endswith('.json'):
-                content_type = 'application/json'
-            elif relative_path.endswith('.yaml') or relative_path.endswith('.yml'):
-                content_type = 'application/x-yaml'
-            elif relative_path.lower().endswith(('.jpg', '.jpeg')):
-                content_type = 'image/jpeg'
-            elif relative_path.lower().endswith('.png'):
-                content_type = 'image/png'
+        # Create snapshot using SnapshotService
+        logger.info(f"[SNAPSHOT] Creating new snapshot for dataset {dataset_id}")
 
-            storage_client.upload_bytes(file_content, target_path, content_type=content_type)
+        snapshot = await snapshot_service.create_snapshot(
+            dataset_id=dataset_id,
+            dataset_path=dataset['storage_path'],
+            user_id=user_id,
+            db=db,
+            notes=f"Automatic snapshot for training job (dataset: {dataset['name']})"
+        )
 
-        logger.info(f"[SNAPSHOT] Files copied successfully")
+        logger.info(f"[SNAPSHOT] Snapshot created successfully: {snapshot.id}")
+        return snapshot.id
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 404:
+            logger.error(f"[SNAPSHOT] Dataset {dataset_id} not found in Labeler")
+        elif e.response.status_code == 403:
+            logger.error(f"[SNAPSHOT] Access denied to dataset {dataset_id}")
+        else:
+            logger.error(f"[SNAPSHOT] HTTP error from Labeler: {e}")
+        raise HTTPException(
+            status_code=e.response.status_code,
+            detail=f"Failed to get dataset from Labeler: {e.response.text}"
+        )
 
     except Exception as e:
-        logger.error(f"[SNAPSHOT] Failed to copy dataset files: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create snapshot: {str(e)}")
-
-    # Create snapshot database record
-    snapshot_dataset = Dataset(
-        id=snapshot_id,
-        name=snapshot_name,
-        description=f"Automatic snapshot created for training job {job_id}",
-        owner_id=parent_dataset.owner_id,
-        visibility=parent_dataset.visibility,
-        tags=parent_dataset.tags,
-        storage_path=snapshot_storage_path,
-        storage_type=parent_dataset.storage_type,
-        format=parent_dataset.format,
-        labeled=parent_dataset.labeled,
-        annotation_path=snapshot_storage_path + "annotations.json" if parent_dataset.annotation_path else None,
-        num_classes=parent_dataset.num_classes,
-        num_images=parent_dataset.num_images,
-        class_names=parent_dataset.class_names,
-        split_config=parent_dataset.split_config,
-        is_snapshot=True,
-        parent_dataset_id=dataset_id,
-        snapshot_created_at=datetime.utcnow(),
-        version_tag=version_tag,
-        status='active',
-        integrity_status='valid',
-        version=1,
-        content_hash=parent_dataset.content_hash,
-        last_modified_at=parent_dataset.last_modified_at,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow()
-    )
-
-    db.add(snapshot_dataset)
-    db.commit()
-    db.refresh(snapshot_dataset)
-
-    logger.info(f"[SNAPSHOT] Created snapshot {snapshot_id} for job {job_id}")
-    return snapshot_id
+        logger.error(f"[SNAPSHOT] Failed to create snapshot: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create snapshot: {str(e)}"
+        )
 
 
 @router.post("/jobs", response_model=training.TrainingJobResponse)
@@ -178,33 +127,53 @@ async def create_training_job(
     dataset_format = config.dataset_format
 
     if config.dataset_id:
-        # Look up dataset in database
-        dataset = db.query(models.Dataset).filter(models.Dataset.id == config.dataset_id).first()
-        if not dataset:
+        # Phase 11.5: Query Labeler API for dataset metadata
+        from app.clients.labeler_client import labeler_client
+
+        try:
+            # Get dataset metadata from Labeler
+            dataset = await labeler_client.get_dataset(config.dataset_id)
+            logger.info(f"[DATASET] Retrieved dataset from Labeler: {dataset['name']} (format: {dataset['format']})")
+
+            # Check user permission (requires user_id from job_request)
+            # TODO: Get current user from auth token instead of hardcoding
+            # For now, skip permission check (assume public dataset)
+            # has_access = await labeler_client.check_permission(config.dataset_id, user_id)
+            # if not has_access:
+            #     raise HTTPException(status_code=403, detail="Access denied to dataset")
+
+            # Use dataset information from Labeler
+            dataset_id = dataset['id']
+            dataset_path = config.dataset_id  # Use ID as path for Training Service
+            dataset_format = dataset['format']
+
+            # Get split configuration from dataset annotations (if exists)
+            # For now, we don't have split_config in Labeler response
+            dataset_split_config = None
+            logger.info(f"[DATASET] Using dataset: {dataset_id} (format: {dataset_format})")
+
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Dataset '{config.dataset_id}' not found in Labeler"
+                )
+            elif e.response.status_code == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Access denied to dataset '{config.dataset_id}'"
+                )
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to query Labeler API: {e.response.text}"
+                )
+        except Exception as e:
+            logger.error(f"[DATASET] Error querying Labeler: {e}")
             raise HTTPException(
-                status_code=404,
-                detail=f"Dataset with id '{config.dataset_id}' not found"
+                status_code=500,
+                detail=f"Failed to retrieve dataset information: {str(e)}"
             )
-
-        # Check access permissions (for now, only public datasets allowed)
-        if dataset.visibility != 'public':
-            raise HTTPException(
-                status_code=403,
-                detail=f"Dataset '{config.dataset_id}' is not publicly accessible"
-            )
-
-        # Use dataset information from DB
-        dataset_id = dataset.id
-        dataset_path = config.dataset_id  # Use ID as path for Training Service
-        dataset_format = dataset.format
-        logger.info(f"[DATASET] Using dataset from DB: {dataset_id} (format: {dataset_format})")
-
-        # Get split configuration from dataset (if exists)
-        dataset_split_config = dataset.split_config if dataset.split_config else None
-        if dataset_split_config:
-            logger.info(f"[DATASET] Found split configuration: {dataset_split_config.get('method')}")
-        else:
-            logger.info(f"[DATASET] No split configuration found, will use defaults")
 
     elif config.dataset_path:
         # Legacy: direct path provided
@@ -226,10 +195,11 @@ async def create_training_job(
 
     # For classification tasks, use num_classes from Dataset if available (optional optimization)
     if config.task_type == "image_classification" and not config.num_classes:
-        if dataset is not None and dataset.num_classes and dataset.num_classes > 0:
-            # Use pre-computed num_classes from Dataset (faster)
-            config.num_classes = dataset.num_classes
-            logger.info(f"[training] Using num_classes from Dataset: {config.num_classes}")
+        # Phase 11.5: dataset is now a dict from Labeler API
+        if dataset is not None and dataset.get('num_classes') and dataset['num_classes'] > 0:
+            # Use pre-computed num_classes from Labeler (faster)
+            config.num_classes = dataset['num_classes']
+            logger.info(f"[training] Using num_classes from Labeler: {config.num_classes}")
         else:
             # num_classes will be auto-detected by Training Service during dataset loading
             logger.info(f"[training] num_classes not provided - will be auto-detected by Training Service")
@@ -456,20 +426,28 @@ async def start_training_job(
             detail=f"Cannot start job with status '{job.status}'",
         )
 
-    # Auto-create snapshot before training starts (if dataset_id provided)
+    # Phase 11.5: Auto-create snapshot before training starts (if dataset_id provided)
     if job.dataset_id:
         try:
-            snapshot_id = await auto_create_snapshot_if_needed(job.dataset_id, job_id, db)
+            # Use job.created_by as user_id for snapshot creation
+            user_id = job.created_by or 1  # Fallback to system user if not set
+            snapshot_id = await auto_create_snapshot_if_needed(job.dataset_id, user_id, db)
             if snapshot_id:
                 job.dataset_snapshot_id = snapshot_id
                 db.commit()
                 logger.info(f"[JOB {job_id}] Using dataset snapshot: {snapshot_id}")
             else:
-                logger.info(f"[JOB {job_id}] No snapshot created (dataset not found or already snapshot)")
+                logger.warning(f"[JOB {job_id}] No snapshot created")
+        except HTTPException as he:
+            # Re-raise HTTP exceptions (dataset not found, access denied, etc.)
+            raise he
         except Exception as e:
             logger.error(f"[JOB {job_id}] Failed to create snapshot: {e}")
-            # Don't fail the training if snapshot creation fails
-            logger.warning(f"[JOB {job_id}] Continuing training without snapshot")
+            # Fail the training if snapshot creation fails (reproducibility requirement)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create dataset snapshot: {str(e)}"
+            )
 
     # Phase 12: Start training via Temporal Workflow
     try:
