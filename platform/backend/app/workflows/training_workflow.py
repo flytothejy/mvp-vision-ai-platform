@@ -111,21 +111,64 @@ async def create_clearml_task(job_id: int) -> str:
         job_id: TrainingJob ID
 
     Returns:
-        ClearML Task ID
-
-    Note:
-        This will be implemented in Phase 12.2 (ClearML Migration).
-        For now, returns empty string to maintain workflow structure.
+        ClearML Task ID (or empty string if ClearML is not configured)
     """
     logger.info(f"[Activity] create_clearml_task - job_id={job_id}")
 
-    # TODO: Implement ClearML Task creation (Phase 12.2)
-    # 1. Initialize ClearML Task
-    # 2. Set task parameters from TrainingJob
-    # 3. Link to project
-    # 4. Return task ID
+    from app.db.database import SessionLocal
+    from app.db import models
+    from app.services.clearml_service import ClearMLService
+    from app.core.config import settings
 
-    return ""  # Placeholder
+    db = SessionLocal()
+    try:
+        # Load TrainingJob to get metadata
+        job = db.query(models.TrainingJob).filter(
+            models.TrainingJob.id == job_id
+        ).first()
+
+        if not job:
+            raise ValueError(f"TrainingJob {job_id} not found")
+
+        # Initialize ClearML Service
+        clearml_service = ClearMLService(db)
+
+        # Create ClearML task
+        task_name = f"Job-{job_id}: {job.model_name} ({job.task_type})"
+        project_name = settings.CLEARML_DEFAULT_PROJECT
+
+        # Generate tags based on job metadata
+        tags = [
+            job.framework,
+            job.task_type,
+            f"model:{job.model_name}",
+        ]
+        if job.project_id:
+            tags.append(f"project:{job.project_id}")
+
+        task_id = clearml_service.create_task(
+            job_id=job_id,
+            task_name=task_name,
+            task_type="training",
+            project_name=project_name,
+            tags=tags
+        )
+
+        if task_id:
+            logger.info(f"[create_clearml_task] Task created: {task_id}")
+            logger.info(f"  Web UI: {settings.CLEARML_WEB_HOST}/projects/*/experiments/{task_id}")
+            return task_id
+        else:
+            logger.warning(f"[create_clearml_task] Task creation failed for job {job_id}")
+            return ""
+
+    except Exception as e:
+        logger.error(f"[create_clearml_task] Error creating task for job {job_id}: {e}")
+        # Don't fail the workflow if ClearML task creation fails
+        # Training can proceed without experiment tracking
+        return ""
+    finally:
+        db.close()
 
 
 @activity.defn(name="execute_training")
