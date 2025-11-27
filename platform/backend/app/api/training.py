@@ -325,20 +325,6 @@ async def get_training_job(job_id: int, db: Session = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
 
-    # Auto-link MLflow run_id if not already linked and job is running/completed
-    if not job.mlflow_run_id and job.status in ["running", "completed"]:
-        try:
-            from app.services.mlflow_service import MLflowService
-            mlflow_service = MLflowService(db)
-            mlflow_run = mlflow_service.get_run_by_job_id(job_id)
-            if mlflow_run:
-                job.mlflow_run_id = mlflow_run.info.run_id
-                db.commit()
-                db.refresh(job)
-                print(f"[INFO] Linked MLflow run_id {job.mlflow_run_id} to job {job_id}")
-        except Exception as e:
-            # Don't fail the request if MLflow linking fails
-            print(f"[WARNING] Failed to link MLflow run for job {job_id}: {e}")
     # Add project_name for breadcrumb navigation
     if job.project_id and job.project:
         job.project_name = job.project.name
@@ -588,7 +574,8 @@ async def restart_training_job(job_id: int, db: Session = Depends(get_db)):
     job.error_message = None
     job.final_accuracy = None
     job.process_id = None
-    job.mlflow_run_id = None
+    job.mlflow_run_id = None  # Keep for backward compatibility (deprecated)
+    job.clearml_task_id = None  # Clear ClearML task ID
 
     # Clear previous metrics
     db.query(models.TrainingMetric).filter(models.TrainingMetric.job_id == job_id).delete()
@@ -797,6 +784,97 @@ async def get_mlflow_summary(job_id: int, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to fetch MLflow summary: {str(e)}"
+        )
+
+
+# ==================== ClearML Experiment Tracking (Phase 12.2) ====================
+
+
+@router.get("/jobs/{job_id}/clearml/metrics")
+async def get_clearml_metrics(job_id: int, db: Session = Depends(get_db)):
+    """
+    Get ClearML task metrics for a training job.
+
+    Returns all metrics with their history from ClearML server,
+    plus primary metric information and task URL.
+    """
+    # Verify job exists
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    if not job.clearml_task_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No ClearML task associated with this job"
+        )
+
+    try:
+        from app.services.clearml_service import ClearMLService
+        clearml_service = ClearMLService(db)
+        metrics_data = clearml_service.get_task_metrics(job.clearml_task_id)
+
+        # Add job metadata
+        metrics_data['job_id'] = job_id
+        metrics_data['primary_metric'] = job.primary_metric or 'loss'
+        metrics_data['primary_metric_mode'] = job.primary_metric_mode or 'min'
+        metrics_data['task_type'] = job.task_type
+        metrics_data['framework'] = job.framework
+
+        return metrics_data
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch ClearML metrics: {str(e)}"
+        )
+
+
+@router.get("/jobs/{job_id}/clearml/task")
+async def get_clearml_task_info(job_id: int, db: Session = Depends(get_db)):
+    """
+    Get ClearML task information for a training job.
+
+    Returns task status, configuration, and web UI link.
+    """
+    # Verify job exists
+    job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job not found")
+
+    if not job.clearml_task_id:
+        raise HTTPException(
+            status_code=404,
+            detail="No ClearML task associated with this job"
+        )
+
+    try:
+        from app.services.clearml_service import ClearMLService
+        from app.core.config import settings
+
+        clearml_service = ClearMLService(db)
+        task = clearml_service.get_task(job.clearml_task_id)
+
+        if not task:
+            raise HTTPException(
+                status_code=404,
+                detail=f"ClearML task {job.clearml_task_id} not found"
+            )
+
+        # Return task information
+        return {
+            "task_id": job.clearml_task_id,
+            "task_name": task.name,
+            "task_status": task.status,
+            "project_name": task.get_project_name(),
+            "web_url": f"{settings.CLEARML_WEB_HOST}/projects/*/experiments/{job.clearml_task_id}",
+            "created_at": task.data.started if hasattr(task.data, 'started') else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch ClearML task info: {str(e)}"
         )
 
 
