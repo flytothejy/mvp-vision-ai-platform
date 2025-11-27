@@ -80,7 +80,8 @@ class Invitation(Base):
     # Target entities (one of these will be set based on invitation_type)
     organization_id = Column(Integer, ForeignKey('organizations.id', ondelete='CASCADE'), nullable=True, index=True)
     project_id = Column(Integer, ForeignKey('projects.id', ondelete='CASCADE'), nullable=True, index=True)
-    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)
+    # Phase 11.5: Dataset invitations are now managed by Labeler (removed ForeignKey)
+    dataset_id = Column(String(100), nullable=True, index=True)  # Labeler dataset ID (no FK constraint)
 
     # Invitation parties
     inviter_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -226,91 +227,26 @@ class ProjectMember(Base):
     inviter = relationship("User", back_populates="invited_members", foreign_keys=[invited_by])
 
 
-class Dataset(Base):
-    """Dataset model for managing training data.
+class DatasetSnapshot(Base):
+    """Dataset snapshot model for training reproducibility.
 
-    Datasets can be public (accessible to everyone), private (owner only),
-    or organization-wide. Platform sample datasets are simply public datasets
-    with 'platform-sample' tag.
+    Platform creates immutable snapshots when training jobs are created.
+    Snapshots are stored in R2 (snapshots/ prefix) and referenced by training jobs.
+
+    Phase 11.5: Dataset Service Integration - Platform manages snapshots, not Labeler.
     """
 
-    __tablename__ = "datasets"
+    __tablename__ = "dataset_snapshots"
 
-    id = Column(String(100), primary_key=True, index=True)  # UUID or simple ID like "det-coco8"
-    name = Column(String(200), nullable=False)
-    description = Column(Text, nullable=True)
-
-    # Ownership (nullable for public datasets without specific owner)
-    owner_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
-
-    # Visibility and access control
-    visibility = Column(String(20), nullable=False, default='private', index=True)  # 'public', 'private', 'organization'
-    tags = Column(JSON, nullable=True)  # e.g., ['platform-sample', 'object-detection', 'coco']
-
-    # Storage
-    storage_path = Column(String(500), nullable=False)  # e.g., "datasets/det-coco8/" or "datasets/{uuid}/"
-    storage_type = Column(String(20), nullable=False, default='minio')  # 'r2', 'minio', 's3', 'gcs' - auto-detected from env
-
-    # Dataset metadata
-    format = Column(String(50), nullable=False)  # 'dice', 'yolo', 'imagefolder', 'coco', 'pascal_voc'
-    labeled = Column(Boolean, nullable=False, default=False)  # Whether dataset has annotation.json
-    annotation_path = Column(String(500), nullable=True)  # Path to annotation.json in R2
-    num_classes = Column(Integer, nullable=True)
-    num_images = Column(Integer, nullable=False, default=0)
-    class_names = Column(JSON, nullable=True)  # List of class names
-
-    # Train/Val split configuration (cached from annotations.json)
-    split_config = Column(JSON, nullable=True)  # {"method": "auto", "default_ratio": [0.8, 0.2], "seed": 42, "splits": {...}}
-
-    # Versioning and snapshots
-    is_snapshot = Column(Boolean, nullable=False, default=False, index=True)  # Is this a snapshot?
-    parent_dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=True, index=True)  # Parent if snapshot
-    snapshot_created_at = Column(DateTime, nullable=True)  # When snapshot was created
-    version_tag = Column(String(50), nullable=True)  # User-defined version tag (v1, v2, etc.)
-
-    # Status and integrity
-    status = Column(String(20), nullable=False, default='active')  # 'active', 'archived', 'deleted'
-    integrity_status = Column(String(20), nullable=False, default='valid')  # 'valid', 'broken', 'repairing'
-
-    # Change tracking
-    version = Column(Integer, nullable=False, default=1)
-    content_hash = Column(String(64), nullable=True)  # SHA256 hash of dataset content
-    last_modified_at = Column(DateTime, nullable=True)  # When data was last modified
-
-    # Timestamps
+    id = Column(String(100), primary_key=True, index=True)  # snap_{uuid}
+    dataset_id = Column(String(100), nullable=False, index=True)  # Original dataset ID (from Labeler)
+    storage_path = Column(String(500), nullable=False)  # e.g., "snapshots/snap_abc123/"
+    created_by_user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    notes = Column(Text, nullable=True)  # Optional notes about this snapshot
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     # Relationships
-    owner = relationship("User", backref="owned_datasets", foreign_keys=[owner_id])
-    permissions = relationship("DatasetPermission", back_populates="dataset", cascade="all, delete-orphan")
-    training_jobs = relationship("TrainingJob", back_populates="dataset", foreign_keys="[TrainingJob.dataset_id]")
-
-    # Snapshot relationships (self-referential)
-    parent = relationship("Dataset", remote_side=[id], foreign_keys=[parent_dataset_id], backref="snapshots")
-    snapshot_training_jobs = relationship("TrainingJob", back_populates="dataset_snapshot", foreign_keys="[TrainingJob.dataset_snapshot_id]")
-
-
-class DatasetPermission(Base):
-    """Dataset permission model for collaboration.
-
-    Controls who can view, edit, or manage a dataset.
-    Public datasets don't require permissions for viewing.
-    """
-
-    __tablename__ = "dataset_permissions"
-
-    id = Column(Integer, primary_key=True, index=True)
-    dataset_id = Column(String(100), ForeignKey('datasets.id', ondelete='CASCADE'), nullable=False, index=True)
-    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    role = Column(String(20), nullable=False, default='viewer')  # 'owner', 'editor', 'viewer'
-    granted_by = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
-    granted_at = Column(DateTime, nullable=False, default=datetime.utcnow)
-
-    # Relationships
-    dataset = relationship("Dataset", back_populates="permissions")
-    user = relationship("User", foreign_keys=[user_id], backref="dataset_permissions")
-    grantor = relationship("User", foreign_keys=[granted_by])
+    created_by = relationship("User", backref="created_snapshots")
 
 
 class Project(Base):

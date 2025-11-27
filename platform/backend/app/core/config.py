@@ -121,6 +121,12 @@ class Settings(BaseSettings):
     # ULTRALYTICS_SERVICE_URL removed - using subprocess CLI execution
     HUGGINGFACE_SERVICE_URL: str = "http://localhost:8003"  # UNUSED
 
+    # Labeler Service (Phase 11.5: Dataset Service Integration)
+    # Labeler Backend is the Single Source of Truth for dataset metadata
+    # Platform queries Labeler API for dataset information
+    LABELER_API_URL: str = "http://localhost:8011"
+    LABELER_SERVICE_KEY: str = "dev-labeler-service-key-change-in-production"
+
     # Training Defaults
     DEFAULT_BATCH_SIZE: int = 32
     DEFAULT_EPOCHS: int = 50

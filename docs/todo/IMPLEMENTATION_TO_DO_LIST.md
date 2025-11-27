@@ -986,6 +986,79 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
 
+### 11.5 Dataset Service Integration (Labeler API 연동) 🔄
+
+**목표**: Labeler Backend를 Dataset 메타데이터의 Single Source of Truth로 설정하고, Platform에서 Labeler API를 통해 dataset 정보 조회
+
+**설계 문서**:
+- [DATASET_MANAGEMENT_ARCHITECTURE.md](../architecture/DATASET_MANAGEMENT_ARCHITECTURE.md)
+- [LABELER_DATASET_API_REQUIREMENTS.md](../integration/LABELER_DATASET_API_REQUIREMENTS.md)
+- [PHASE_11_RAILWAY_DEPLOYMENT_PLAN.md](../planning/PHASE_11_RAILWAY_DEPLOYMENT_PLAN.md) - Stage 2.5
+
+**아키텍처 원칙**:
+- Labeler: Dataset metadata/annotation/permissions 관리 (6개 API 엔드포인트)
+- Platform: Training orchestration, Snapshot 관리 (R2 직접 접근)
+
+**11.5.1 환경 변수 설정** ✅
+- [x] `.env`에 `LABELER_API_URL` 추가 (기본값: `http://localhost:8011`)
+- [x] `.env`에 `LABELER_SERVICE_KEY` 추가 (서비스 간 인증)
+- [x] `config.py`에 설정 추가
+
+**11.5.2 LabelerClient 구현** ✅
+- [x] `app/clients/labeler_client.py` 생성 (295줄)
+- [x] `get_dataset(dataset_id)` - 단일 dataset 조회
+- [x] `list_datasets(user_id, filters)` - Dataset 목록 조회
+- [x] `check_permission(dataset_id, user_id)` - 권한 확인
+- [x] `get_download_url(dataset_id, user_id)` - Presigned URL 생성
+- [x] `batch_get_datasets(dataset_ids)` - Bulk 조회 (최대 50개)
+- [x] httpx AsyncClient 사용, JWT Bearer 인증
+- [x] Error handling (404, 403, 500, timeout)
+- [x] `health_check()` 메서드 추가
+
+**11.5.3 Snapshot Service 구현** ✅
+- [x] `app/services/snapshot_service.py` 생성 (211줄)
+- [x] `create_snapshot(dataset_id, dataset_path, user_id)` - R2에서 snapshot 생성
+- [x] `_copy_r2_folder(source, destination)` - R2 폴더 복사 (dual_storage 활용, server-side copy)
+- [x] `get_snapshot(snapshot_id)` - Snapshot 조회
+- [x] `list_snapshots_by_dataset(dataset_id)` - Dataset별 snapshot 목록
+- [x] Platform DB에 snapshot 정보 저장 (DatasetSnapshot 모델)
+
+**11.5.4 Platform DB Schema 정리 및 마이그레이션** ✅
+- [x] `dataset_snapshots` 테이블 생성 (DatasetSnapshot 모델)
+- [x] `datasets` 테이블 완전 제거 (Labeler가 Single Source of Truth)
+- [x] `dataset_permissions` 테이블 완전 제거 (Labeler가 관리)
+- [x] `models.py`에서 Dataset, DatasetPermission 모델 제거
+- [x] Invitation.dataset_id 외래키 제거 (Labeler dataset ID 참조)
+- [x] Migration 스크립트 작성 및 실행 (`migrate_phase_11_5.py`)
+- [x] PostgreSQL DB 검증 완료 (24개 → 23개 테이블)
+
+**11.5.5 Platform API 엔드포인트 수정** 🔄
+- [x] `GET /api/v1/datasets/available` - Labeler API 프록시로 변경
+- [ ] `POST /api/v1/training` - Labeler API 통합 (dataset validation + snapshot 생성)
+- [ ] `training.py`에서 Dataset 조회를 LabelerClient로 변경
+- [ ] `datasets.py`에서 Dataset CRUD 엔드포인트 제거/수정
+- [ ] Error handling 및 fallback 로직
+
+**11.5.6 Integration Testing** ⬜
+- [ ] Labeler API 연결 테스트
+- [ ] Dataset 조회 테스트 (Platform → Labeler)
+- [ ] Permission 체크 테스트
+- [ ] Snapshot 생성 테스트 (Platform → R2)
+- [ ] Training job 생성 with snapshot 테스트
+
+**11.5.7 E2E Testing 업데이트** ⬜
+- [ ] `test_e2e.py` 업데이트 (Labeler API 사용)
+- [ ] Dataset 조회 시나리오 수정
+- [ ] Training job 생성 시나리오 수정
+
+**Optional: Redis 캐싱** ⬜
+- [ ] Labeler API 응답 캐싱 (TTL: 300초)
+- [ ] Snapshot 생성 시 분산 락 구현
+- [ ] Cache invalidation 전략
+
+**예상 기간**: 5-6일
+**진행률**: 60% (11.5.1-11.5.4 완료, 11.5.5 일부 완료)
+
 ## Phase 12: Temporal Orchestration & Backend Modernization (80%)
 
 **브랜치**: `feature/phase-12.2-clearml-migration`

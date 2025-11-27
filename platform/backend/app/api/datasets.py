@@ -253,6 +253,8 @@ async def list_sample_datasets(
     """
     List available datasets for the current user.
 
+    Phase 11.5: Dataset Service Integration - Queries Labeler API instead of Platform DB.
+
     Returns:
     - User's own datasets (where owner_id == user_id)
     - Public datasets (visibility == 'public')
@@ -264,56 +266,58 @@ async def list_sample_datasets(
         db: Database session
 
     Returns:
-        List of datasets with metadata
+        List of datasets with metadata from Labeler
     """
-    from sqlalchemy import or_
+    from app.clients.labeler_client import labeler_client
+    import httpx
 
-    # Query datasets that are either:
-    # 1. Owned by the current user
-    # 2. Public (visible to everyone)
-    query = db.query(Dataset).filter(
-        or_(
-            Dataset.owner_id == current_user.id,
-            Dataset.visibility == 'public'
+    try:
+        # Query Labeler API for datasets
+        tag_list = [t.strip() for t in tags.split(',')] if tags else None
+
+        result = await labeler_client.list_datasets(
+            user_id=current_user.id,
+            labeled=labeled,
+            tags=tag_list,
+            page=1,
+            limit=100  # Get all datasets (adjust if needed)
         )
-    )
 
-    # Filter by labeled status
-    if labeled is not None:
-        query = query.filter(Dataset.labeled == labeled)
+        datasets = result.get("datasets", [])
+        logger.info(
+            f"User {current_user.id} ({current_user.email}) querying datasets: "
+            f"found {len(datasets)} datasets from Labeler API"
+        )
 
-    # Filter by tags
-    if tags:
-        tag_list = [t.strip() for t in tags.split(',')]
-        # Check if dataset has any of the specified tags
-        for tag in tag_list:
-            query = query.filter(Dataset.tags.contains([tag]))
+        # Convert Labeler response to Platform format
+        response_list = []
+        for ds in datasets:
+            response_list.append({
+                "id": ds["id"],
+                "name": ds["name"],
+                "description": ds.get("description", f"Dataset - {ds['format']} format"),
+                "format": ds["format"],
+                "labeled": ds["labeled"],
+                "num_items": ds.get("num_images", 0),
+                "size_mb": None,  # Labeler doesn't return size yet
+                "source": ds.get("storage_type", "r2"),
+                "path": ds["id"],  # Use ID as path
+                "visibility": ds.get("visibility", "public"),
+                "owner_id": ds.get("owner_id"),
+                "owner_name": None,  # Labeler doesn't return owner details
+                "owner_email": None,
+                "owner_badge_color": None,
+            })
 
-    datasets = query.all()
+        return response_list
 
-    logger.info(f"User {current_user.id} ({current_user.email}) querying datasets: found {len(datasets)} datasets")
-
-    # Convert to response format
-    result = []
-    for ds in datasets:
-        result.append({
-            "id": ds.id,
-            "name": ds.name,
-            "description": ds.description or f"Dataset - {ds.format} format",
-            "format": ds.format,
-            "labeled": ds.labeled,
-            "num_items": ds.num_images,
-            "size_mb": None,  # Size not stored in DB yet
-            "source": ds.storage_type,
-            "path": ds.id,  # Use ID as path
-            "visibility": ds.visibility,
-            "owner_id": ds.owner_id,
-            "owner_name": ds.owner.full_name if ds.owner else None,
-            "owner_email": ds.owner.email if ds.owner else None,
-            "owner_badge_color": ds.owner.badge_color if ds.owner else None,
-        })
-
-    return result
+    except httpx.HTTPError as e:
+        logger.error(f"Failed to query Labeler API: {e}")
+        # Fallback to empty list on error
+        raise HTTPException(
+            status_code=503,
+            detail="Dataset service temporarily unavailable. Please try again later."
+        )
 
 
 @router.get("/list", response_model=DatasetListResponse)
