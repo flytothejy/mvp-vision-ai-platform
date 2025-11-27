@@ -135,6 +135,14 @@ class Settings(BaseSettings):
     # Training Execution Mode (Phase 12: TrainingManager)
     TRAINING_MODE: str = "subprocess"  # Options: "subprocess" (Tier 0), "kubernetes" (Tier 1+)
 
+    # ClearML Configuration (Phase 12.2: Replaces MLflow)
+    CLEARML_API_HOST: str = "http://localhost:8008"
+    CLEARML_WEB_HOST: str = "http://localhost:8080"
+    CLEARML_FILES_HOST: str = "http://localhost:8081"
+    CLEARML_API_ACCESS_KEY: str = ""  # Empty for open-source server
+    CLEARML_API_SECRET_KEY: str = ""  # Empty for open-source server
+    CLEARML_DEFAULT_PROJECT: str = "Platform Training"
+
     class Config:
         # Don't load .env file - use environment variables directly
         # Railway provides environment variables, not .env files
