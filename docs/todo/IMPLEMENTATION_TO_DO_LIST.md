@@ -986,7 +986,7 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Cross-service 인증 테스트
 - [ ] 장애 격리 테스트
 
-## Phase 12: Temporal Orchestration & Backend Modernization (73%)
+## Phase 12: Temporal Orchestration & Backend Modernization (80%)
 
 **브랜치**: `feature/phase-12.2-clearml-migration`
 
@@ -998,17 +998,20 @@ Temporal Workflow 도입으로 Training 파이프라인 현대화 및 Backend �
 3. ✅ **ClearML 전환** - MLflow → ClearML 완전 마이그레이션 (완료)
 4. ✅ **Storage Pattern 통일** - dual_storage 싱글톤 패턴 (완료)
 5. ✅ **Callback 리팩토링** - TrainingCallbackService ClearML 마이그레이션 (완료)
+6. 🔄 **E2E Testing** - Complete training workflow 테스트 (진행 중, API 구조 검증 완료)
 
 **예상 기간**: 11일
 **References**:
 - [BACKEND_REFACTORING_PLAN.md](BACKEND_REFACTORING_PLAN.md)
 - [CLEARML_MIGRATION_PLAN.md](reference/CLEARML_MIGRATION_PLAN.md)
+- [PHASE_12_5_E2E_TEST_REPORT.md](../testing/PHASE_12_5_E2E_TEST_REPORT.md) ← NEW!
 - [Temporal Documentation](https://docs.temporal.io/)
 
 **진행 상황**:
 - Phase 12.2 (ClearML Migration): ✅ 100% (2025-11-27)
 - Phase 12.3 (Storage Pattern): ✅ 100% (2025-11-27)
 - Phase 12.4 (Callback Refactoring): ✅ 100% (2025-11-27)
+- Phase 12.5 (E2E Testing): 🔄 40% (2025-11-27) - 4/8 steps passing, training job creation debugging
 
 ---
 
