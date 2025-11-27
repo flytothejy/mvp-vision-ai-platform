@@ -51,6 +51,13 @@ import yaml
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
+# ClearML (optional dependency - Phase 12.2)
+try:
+    from clearml import Task
+    CLEARML_AVAILABLE = True
+except ImportError:
+    CLEARML_AVAILABLE = False
+
 # Configure module logger
 logger = logging.getLogger(__name__)
 
@@ -453,8 +460,36 @@ class TrainerSDK:
         if extra_data:
             data['extra_data'] = extra_data
 
+        # Send to Backend API
         self._send_callback(f'/training/jobs/{self.job_id}/callback/progress', data)
         logger.debug(f"Reported progress: epoch {epoch}/{total_epochs} ({progress_percent:.1f}%)")
+
+        # ClearML Integration (Phase 12.2)
+        if CLEARML_AVAILABLE:
+            try:
+                task = Task.current_task()
+                if task:
+                    # Log all metrics to ClearML
+                    for metric_name, metric_value in metrics.items():
+                        if metric_value is not None:
+                            # Parse metric name to determine title and series
+                            # e.g., "train/loss" → title="loss", series="train"
+                            if '/' in metric_name:
+                                series, title = metric_name.split('/', 1)
+                            else:
+                                title = metric_name
+                                series = 'train'
+
+                            task.get_logger().report_scalar(
+                                title=title,
+                                series=series,
+                                value=float(metric_value),
+                                iteration=epoch
+                            )
+                    logger.debug(f"Logged {len(metrics)} metrics to ClearML task")
+            except Exception as e:
+                # Don't fail training if ClearML logging fails
+                logger.warning(f"Failed to log metrics to ClearML: {e}")
 
     def report_validation(
         self,
