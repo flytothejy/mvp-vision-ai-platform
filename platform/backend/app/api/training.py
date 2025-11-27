@@ -534,7 +534,7 @@ async def cancel_training_job(job_id: int, db: Session = Depends(get_db)):
     """
     Cancel a running training job.
     """
-    from app.utils.training_subprocess import get_training_subprocess_manager
+    from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
 
     job = db.query(models.TrainingJob).filter(models.TrainingJob.id == job_id).first()
     if not job:
@@ -1411,7 +1411,7 @@ async def stop_training_job(
         logger.info(f"[stop-training] Stopping job {job_id} (status: {job.status})")
 
         # Stop training subprocess
-        from app.utils.training_subprocess import get_training_subprocess_manager
+        from app.core.training_managers.subprocess_manager import get_training_subprocess_manager
         manager = get_training_subprocess_manager()
 
         # Stop the training job
