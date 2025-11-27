@@ -7,6 +7,7 @@ the entire training pipeline using Temporal.
 """
 
 import logging
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Dict, Any, Optional
 
@@ -18,29 +19,20 @@ logger = logging.getLogger(__name__)
 
 # ========== Workflow Input/Output Models ==========
 
+@dataclass
 class TrainingWorkflowInput:
     """Input parameters for TrainingWorkflow."""
-
-    def __init__(self, job_id: int):
-        self.job_id = job_id
+    job_id: int
 
 
+@dataclass
 class TrainingWorkflowResult:
     """Result of TrainingWorkflow execution."""
-
-    def __init__(
-        self,
-        success: bool,
-        job_id: int,
-        final_metrics: Optional[Dict[str, Any]] = None,
-        model_path: Optional[str] = None,
-        error_message: Optional[str] = None
-    ):
-        self.success = success
-        self.job_id = job_id
-        self.final_metrics = final_metrics
-        self.model_path = model_path
-        self.error_message = error_message
+    success: bool
+    job_id: int
+    final_metrics: Optional[Dict[str, Any]] = None
+    model_path: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 # ========== Activity Definitions ==========
@@ -85,8 +77,8 @@ async def validate_dataset(job_id: int) -> Dict[str, Any]:
             if not dataset:
                 raise ValueError(f"Dataset {job.dataset_id} not found")
 
-            dataset_path = dataset.local_path
-            logger.info(f"[validate_dataset] Using Dataset ID: {dataset.id}, path: {dataset_path}")
+            dataset_path = dataset.storage_path  # S3/R2 path
+            logger.info(f"[validate_dataset] Using Dataset ID: {dataset.id}, storage: {dataset_path}")
         elif job.dataset_path:
             # Legacy dataset_path approach
             dataset_path = job.dataset_path
@@ -94,16 +86,11 @@ async def validate_dataset(job_id: int) -> Dict[str, Any]:
         else:
             raise ValueError(f"Job {job_id} has no dataset_id or dataset_path")
 
-        # 3. Check dataset path exists
-        dataset_dir = Path(dataset_path)
-        if not dataset_dir.exists():
-            raise ValueError(f"Dataset path does not exist: {dataset_path}")
-
-        # 4. Basic format validation (simplified - full validation in Training Service)
+        # 3. Dataset format validation
         dataset_format = job.dataset_format or "imagefolder"
         logger.info(f"[validate_dataset] Dataset format: {dataset_format}")
 
-        # 5. Return metadata
+        # 4. Return metadata (skip path existence check for now - Training Service will handle it)
         return {
             "valid": True,
             "dataset_path": str(dataset_path),
@@ -181,8 +168,47 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
         manager = get_training_manager()
         logger.info(f"[execute_training] Using TrainingManager: {type(manager).__name__}")
 
-        # 3. Start training
-        training_metadata = await manager.start_training(job)
+        # 3. Prepare training parameters
+        from app.core.config import settings
+
+        # Build dataset S3 URI
+        if job.dataset_id:
+            dataset_s3_uri = f"s3://training-datasets/datasets/{job.dataset_id}/"
+        elif job.dataset_path:
+            dataset_s3_uri = job.dataset_path
+        else:
+            raise ValueError(f"Job {job_id} has no dataset")
+
+        # Build training config
+        training_config = {
+            "model": job.model_name,
+            "task": job.task_type,
+            "epochs": job.epochs,
+            "batch": job.batch_size,
+            "learning_rate": job.learning_rate,
+            "imgsz": 640,
+            "device": "cpu",
+            "primary_metric": job.primary_metric or "loss",
+            "primary_metric_mode": job.primary_metric_mode or "min",
+        }
+
+        # Add advanced_config if available
+        if job.advanced_config and "split_config" in job.advanced_config:
+            training_config["split_config"] = job.advanced_config["split_config"]
+
+        # Build callback URL
+        backend_port = "8000"  # Default for Tier 0
+        callback_url = f"http://localhost:{backend_port}/api/v1/training"
+
+        # 4. Start training (legacy signature - will be refactored in Phase 12.1.x)
+        training_metadata = await manager.start_training(
+            job_id=job_id,
+            framework=job.framework,
+            model_name=job.model_name,
+            dataset_s3_uri=dataset_s3_uri,
+            callback_url=callback_url,
+            config=training_config,
+        )
         logger.info(f"[execute_training] Training started: {training_metadata}")
 
         # 4. Monitor training progress and send heartbeats
@@ -201,10 +227,7 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
 
             # Send heartbeat to Temporal
             elapsed = int(time.time() - start_time)
-            if job.current_epoch and job.epochs:
-                progress_msg = f"Epoch {job.current_epoch}/{job.epochs} (elapsed: {elapsed}s)"
-            else:
-                progress_msg = f"Training in progress (elapsed: {elapsed}s)"
+            progress_msg = f"Training in progress (elapsed: {elapsed}s, status: {job.status})"
 
             activity.heartbeat(progress_msg)
             logger.debug(f"[execute_training] Heartbeat: {progress_msg}")
