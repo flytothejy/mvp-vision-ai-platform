@@ -8,8 +8,9 @@ from typing import Optional
 from app.db.database import get_db, get_user_db
 from app.db.models import (
     User, Invitation, InvitationType, InvitationStatus, UserRole,
-    Organization, Project, Dataset, ProjectMember
+    Organization, Project, ProjectMember
 )
+# Phase 11.5: Dataset model removed (managed by Labeler)
 from app.schemas.invitation import (
     InvitationCreate,
     InvitationResponse,
@@ -76,9 +77,9 @@ def get_invitation_info(
                     organization_name = org.name
 
     elif invitation.invitation_type == InvitationType.DATASET:
-        # Dataset is in Platform DB
-        dataset = db.query(Dataset).filter(Dataset.id == invitation.dataset_id).first()
-        entity_name = dataset.name if dataset else "Dataset"
+        # Phase 11.5: Dataset managed by Labeler, show ID only
+        # TODO: Query Labeler API for dataset name
+        entity_name = f"Dataset ({invitation.dataset_id[:8]}...)" if invitation.dataset_id else "Dataset"
 
     # Get inviter name from User DB
     inviter = user_db.query(User).filter(User.id == invitation.inviter_id).first()
@@ -145,12 +146,9 @@ def accept_invitation(
             if project:
                 organization_id = project.organization_id
         elif invitation.invitation_type == InvitationType.DATASET:
-            dataset = db.query(Dataset).filter(Dataset.id == invitation.dataset_id).first()
-            if dataset:
-                # Datasets might have organization via owner's organization
-                owner = db.query(User).filter(User.id == dataset.owner_id).first()
-                if owner:
-                    organization_id = owner.organization_id
+            # Phase 11.5: Dataset managed by Labeler
+            # TODO: Query Labeler API for dataset owner and organization
+            pass  # organization_id stays None for now
 
         # Generate avatar name
         import random
@@ -359,8 +357,9 @@ def create_invitation(
         project = db.query(Project).filter(Project.id == entity_id).first()
         entity_name = project.name if project else "Project"
     elif invitation_type == InvitationType.DATASET:
-        dataset = db.query(Dataset).filter(Dataset.id == entity_id).first()
-        entity_name = dataset.name if dataset else "Dataset"
+        # Phase 11.5: Dataset managed by Labeler
+        # TODO: Query Labeler API for dataset name
+        entity_name = f"Dataset ({entity_id[:8]}...)" if entity_id else "Dataset"
 
     inviter_name = inviter.full_name or inviter.email
 

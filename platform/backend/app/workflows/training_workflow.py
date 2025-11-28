@@ -40,7 +40,12 @@ class TrainingWorkflowResult:
 @activity.defn(name="validate_dataset")
 async def validate_dataset(job_id: int) -> Dict[str, Any]:
     """
-    Validate dataset existence and format.
+    Validate dataset existence and format via DatasetSnapshot.
+
+    Phase 12.2: Uses DatasetSnapshot instead of Labeler API call
+    - No user JWT required (reads from Platform DB)
+    - Collision detection ensures data integrity
+    - Metadata-only snapshot (no data duplication)
 
     Args:
         job_id: TrainingJob ID
@@ -49,13 +54,13 @@ async def validate_dataset(job_id: int) -> Dict[str, Any]:
         Dict containing validation results and dataset metadata
 
     Raises:
-        ValueError: If dataset is invalid or not found
+        ValueError: If dataset snapshot is invalid or not found
     """
     logger.info(f"[Activity] validate_dataset - job_id={job_id}")
 
     from app.db.database import SessionLocal
     from app.db import models
-    from pathlib import Path
+    from app.services.snapshot_service import snapshot_service
 
     db = SessionLocal()
     try:
@@ -67,30 +72,55 @@ async def validate_dataset(job_id: int) -> Dict[str, Any]:
         if not job:
             raise ValueError(f"TrainingJob {job_id} not found")
 
-        # 2. Check dataset exists
-        if job.dataset_id:
-            # New dataset reference approach
-            dataset = db.query(models.Dataset).filter(
-                models.Dataset.id == job.dataset_id
+        # 2. Check dataset snapshot exists (Phase 12.2: Use Platform DB snapshot)
+        if job.dataset_snapshot_id:
+            # Primary approach: Use DatasetSnapshot (no Labeler API call needed)
+            snapshot = db.query(models.DatasetSnapshot).filter(
+                models.DatasetSnapshot.id == job.dataset_snapshot_id
             ).first()
 
-            if not dataset:
-                raise ValueError(f"Dataset {job.dataset_id} not found")
+            if not snapshot:
+                raise ValueError(f"DatasetSnapshot {job.dataset_snapshot_id} not found")
 
-            dataset_path = dataset.storage_path  # S3/R2 path
-            logger.info(f"[validate_dataset] Using Dataset ID: {dataset.id}, storage: {dataset_path}")
+            logger.info(
+                f"[validate_dataset] Using Snapshot ID: {snapshot.id}, "
+                f"dataset: {snapshot.dataset_id}, storage: {snapshot.storage_path}"
+            )
+
+            # Validate snapshot integrity (collision detection)
+            try:
+                await snapshot_service.validate_snapshot(snapshot, db)
+                logger.info(f"[validate_dataset] Snapshot validation successful")
+            except ValueError as e:
+                raise ValueError(f"Snapshot validation failed: {e}")
+
+            # Use snapshot's storage path (references original dataset in R2)
+            dataset_path = snapshot.storage_path
+            dataset_format = job.dataset_format or "imagefolder"
+
+        elif job.dataset_id:
+            # Fallback: dataset_id without snapshot (legacy or manual job creation)
+            # This will be deprecated - all jobs should use snapshots
+            logger.warning(
+                f"[validate_dataset] Job {job_id} has dataset_id but no snapshot. "
+                f"This is legacy behavior and should be updated."
+            )
+            raise ValueError(
+                f"Job {job_id} has dataset_id={job.dataset_id} but no snapshot. "
+                f"Please create a snapshot before training."
+            )
+
         elif job.dataset_path:
-            # Legacy dataset_path approach
+            # Legacy dataset_path approach (deprecated)
             dataset_path = job.dataset_path
-            logger.info(f"[validate_dataset] Using legacy dataset_path: {dataset_path}")
+            dataset_format = job.dataset_format or "imagefolder"
+            logger.warning(f"[validate_dataset] Using legacy dataset_path: {dataset_path}")
+
         else:
-            raise ValueError(f"Job {job_id} has no dataset_id or dataset_path")
+            raise ValueError(f"Job {job_id} has no dataset_snapshot_id, dataset_id, or dataset_path")
 
-        # 3. Dataset format validation
-        dataset_format = job.dataset_format or "imagefolder"
+        # 3. Return metadata
         logger.info(f"[validate_dataset] Dataset format: {dataset_format}")
-
-        # 4. Return metadata (skip path existence check for now - Training Service will handle it)
         return {
             "valid": True,
             "dataset_path": str(dataset_path),

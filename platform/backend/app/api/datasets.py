@@ -57,7 +57,7 @@ class SampleDatasetInfo(BaseModel):
     id: str
     name: str
     format: str
-    task_type: str
+    task_type: Optional[str] = None  # Phase 11.5: Labeler may not return task_type
     num_images: int
     num_classes: Optional[int] = None
     class_names: Optional[List[str]] = None
@@ -83,14 +83,13 @@ async def list_sample_datasets(
     """
     try:
         # Query Labeler API for available datasets
-        datasets = await labeler_client.list_datasets(
-            user_id=current_user.id,
-            filters={
-                "labeled": labeled,
-                "task_type": task_type
-            }
+        result = await labeler_client.list_datasets(
+            requesting_user_id=current_user.id,
+            labeled=labeled
+            # Note: task_type filtering will be done client-side if needed
         )
 
+        datasets = result.get("datasets", [])
         logger.info(f"[DATASETS] Retrieved {len(datasets)} datasets from Labeler for user {current_user.id}")
         return datasets
 

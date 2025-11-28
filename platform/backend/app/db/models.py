@@ -230,8 +230,13 @@ class ProjectMember(Base):
 class DatasetSnapshot(Base):
     """Dataset snapshot model for training reproducibility.
 
+    Phase 12.2: Metadata-Only Snapshot Design
+    - Snapshot metadata stored in internal storage (MinIO)
+    - Dataset files (images) remain in external storage (R2) - no duplication
+    - Collision detection via dataset_version_hash ensures reproducibility
+
     Platform creates immutable snapshots when training jobs are created.
-    Snapshots are stored in R2 (snapshots/ prefix) and referenced by training jobs.
+    Snapshots reference original dataset in R2 instead of copying all files.
 
     Phase 11.5: Dataset Service Integration - Platform manages snapshots, not Labeler.
     """
@@ -240,7 +245,12 @@ class DatasetSnapshot(Base):
 
     id = Column(String(100), primary_key=True, index=True)  # snap_{uuid}
     dataset_id = Column(String(100), nullable=False, index=True)  # Original dataset ID (from Labeler)
-    storage_path = Column(String(500), nullable=False)  # e.g., "snapshots/snap_abc123/"
+
+    # Phase 12.2: Metadata-Only Snapshot
+    storage_path = Column(String(500), nullable=False)  # Reference to original dataset path (e.g., "datasets/ds_564a6a/")
+    snapshot_metadata_path = Column(String(500), nullable=True)  # Metadata JSON in internal storage (e.g., "snapshots/snap_abc123/metadata.json")
+    dataset_version_hash = Column(String(64), nullable=True, index=True)  # SHA256 hash for collision detection
+
     # Phase 11: User table moved to User DB - no FK constraint across databases
     created_by_user_id = Column(Integer, nullable=True)  # References User DB users.id
     notes = Column(Text, nullable=True)  # Optional notes about this snapshot

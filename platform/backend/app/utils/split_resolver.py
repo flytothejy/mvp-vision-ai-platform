@@ -15,7 +15,7 @@ from typing import Optional, Dict, Any
 import httpx
 
 from app.clients.labeler_client import labeler_client
-from app.storage.dual_storage import dual_storage
+from app.utils.dual_storage import dual_storage
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from app.core.config import settings
-from app.api import auth, chat, training, projects, debug, datasets, datasets_images, datasets_folder, admin, validation, test_inference, models, image_tools, internal, invitations, export, inference, websocket
+from app.api import auth, chat, training, projects, debug, datasets, admin, validation, test_inference, models, image_tools, internal, invitations, export, inference, websocket
+# Temporarily disabled: datasets_images, datasets_folder (Phase 11.5 Dataset model cleanup)
 
 # Redis integration (Phase 5)
 from app.services.redis_manager import RedisManager
@@ -179,8 +180,9 @@ app.include_router(projects.router, prefix=f"{settings.API_V1_PREFIX}/projects",
 # experiments.router removed - MLflow experiments replaced by ClearML Projects (Phase 12.2)
 app.include_router(invitations.router, prefix=f"{settings.API_V1_PREFIX}", tags=["invitations"])
 app.include_router(datasets.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets"])
-app.include_router(datasets_images.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-images"])
-app.include_router(datasets_folder.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-folder"])
+# Phase 11.5: Temporarily disabled until Dataset model cleanup complete
+# app.include_router(datasets_images.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-images"])
+# app.include_router(datasets_folder.router, prefix=f"{settings.API_V1_PREFIX}/datasets", tags=["datasets-folder"])
 app.include_router(admin.router, prefix=f"{settings.API_V1_PREFIX}/admin", tags=["admin"])
 app.include_router(debug.router, prefix=f"{settings.API_V1_PREFIX}/debug", tags=["debug"])
 app.include_router(models.router, prefix=f"{settings.API_V1_PREFIX}", tags=["models"])  # Model registry

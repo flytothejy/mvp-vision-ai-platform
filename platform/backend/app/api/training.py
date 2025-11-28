@@ -300,12 +300,91 @@ async def create_training_job(
     db.add(job)
     db.commit()
     db.refresh(job)
+
+    # Phase 12.6: Create dataset snapshot before starting workflow
+    if dataset_id:
+        try:
+            # Step 1: Resolve split configuration using 3-Level Priority System
+            from app.utils.split_resolver import resolve_split_configuration
+
+            logger.info(f"[JOB {job.id}] Resolving split configuration...")
+            resolved_split = await resolve_split_configuration(
+                dataset_id=dataset_id,
+                job_split_strategy=split_strategy_dict
+            )
+            logger.info(f"[JOB {job.id}] Split resolved: source={resolved_split['source']}, method={resolved_split['method']}")
+
+            # Step 2: Create snapshot with resolved split
+            snapshot_id = await auto_create_snapshot_if_needed(
+                dataset_id=dataset_id,
+                user_id=current_user.id,
+                db=db,
+                split_config=resolved_split
+            )
+            if snapshot_id:
+                job.dataset_snapshot_id = snapshot_id
+                db.commit()
+                logger.info(f"[JOB {job.id}] Using dataset snapshot: {snapshot_id}")
+            else:
+                logger.warning(f"[JOB {job.id}] No snapshot created")
+        except HTTPException as he:
+            # Re-raise HTTP exceptions (dataset not found, access denied, etc.)
+            job.status = "failed"
+            job.error_message = f"Failed to create snapshot: {he.detail}"
+            db.commit()
+            raise he
+        except Exception as e:
+            logger.error(f"[JOB {job.id}] Failed to create snapshot: {e}")
+            # Fail the training if snapshot creation fails (reproducibility requirement)
+            job.status = "failed"
+            job.error_message = f"Failed to create dataset snapshot: {str(e)}"
+            db.commit()
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to create dataset snapshot: {str(e)}"
+            )
+
+    # Phase 12.0: Start Temporal workflow for training execution
+    logger.info(f"[TRAINING] Starting Temporal workflow for job {job.id}")
+    try:
+        from app.core.temporal_client import get_temporal_client
+        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
+
+        temporal_client = await get_temporal_client()
+
+        # Start workflow
+        workflow_id = f"training-job-{job.id}"
+        workflow_handle = await temporal_client.start_workflow(
+            TrainingWorkflow.run,
+            TrainingWorkflowInput(job_id=job.id),
+            id=workflow_id,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+        )
+
+        # Update job with workflow_id
+        job.workflow_id = workflow_id
+        db.commit()
+        db.refresh(job)
+
+        logger.info(f"[TRAINING] Workflow started: {workflow_id}")
+        logger.info(f"  Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}")
+
+    except Exception as e:
+        logger.error(f"[TRAINING] Failed to start workflow for job {job.id}: {e}")
+        # Job is created but workflow failed - mark as failed
+        job.status = "failed"
+        job.error_message = f"Failed to start workflow: {str(e)}"
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Training job created but workflow failed to start: {str(e)}"
+        )
+
     # Add project_name for breadcrumb navigation
     if job.project_id and job.project:
         job.project_name = job.project.name
     else:
         job.project_name = None
-
 
     return job
 
