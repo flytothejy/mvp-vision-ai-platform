@@ -1126,7 +1126,7 @@ Temporal Workflow 도입으로 Training 파이프라인 현대화 및 Backend �
 - Phase 12.2 (ClearML Migration): ✅ 100% (2025-11-27)
 - Phase 12.3 (Storage Pattern): ✅ 100% (2025-11-27)
 - Phase 12.4 (Callback Refactoring): ✅ 100% (2025-11-27)
-- Phase 12.5 (E2E Testing): 🔄 40% (2025-11-27) - 4/8 steps passing, training job creation debugging
+- Phase 12.5 (E2E Testing): ✅ 80% (2025-11-28) - API 레벨 8/8 steps PASS, Temporal workflow 실행 남음
 
 ---
 
@@ -2246,7 +2246,16 @@ dual_storage.generate_checkpoint_download_url(...)
 ### 12.5 Testing & Documentation ⬜
 
 #### 12.5.1 Integration Tests
-- [ ] Temporal workflow E2E test
+- [x] **E2E API 테스트** (test_e2e.py) - 8/8 steps PASS ✅
+  - [x] Step 1: Login and Get JWT Token
+  - [x] Step 2: Get Current User Info
+  - [x] Step 3: List Available Datasets (Labeler integration)
+  - [x] Step 4: Get Model Capabilities
+  - [x] Step 5: Create Training Job (JWT authentication with user_id)
+  - [x] Step 6: Monitor Job Status
+  - [x] Step 7: Get Final Job Details
+  - [x] Step 8: Get Training Metrics
+- [ ] Temporal workflow E2E test (실제 training 실행)
 - [ ] SubprocessTrainingManager test
 - [ ] KubernetesTrainingManager test (Kind)
 - [ ] ClearML integration test
