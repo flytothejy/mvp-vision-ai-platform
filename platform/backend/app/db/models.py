@@ -106,7 +106,7 @@ class Invitation(Base):
     invitee = relationship("User", foreign_keys=[invitee_id], backref="received_invitations")
     organization = relationship("Organization")
     project = relationship("Project")
-    dataset = relationship("Dataset")
+    # Phase 11.5: Dataset relationship removed (Dataset model deleted, managed by Labeler)
 
     def is_expired(self) -> bool:
         """Check if invitation is expired."""
@@ -241,7 +241,8 @@ class DatasetSnapshot(Base):
     id = Column(String(100), primary_key=True, index=True)  # snap_{uuid}
     dataset_id = Column(String(100), nullable=False, index=True)  # Original dataset ID (from Labeler)
     storage_path = Column(String(500), nullable=False)  # e.g., "snapshots/snap_abc123/"
-    created_by_user_id = Column(Integer, ForeignKey('users.id', ondelete='SET NULL'), nullable=True)
+    # Phase 11: User table moved to User DB - no FK constraint across databases
+    created_by_user_id = Column(Integer, nullable=True)  # References User DB users.id
     notes = Column(Text, nullable=True)  # Optional notes about this snapshot
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
@@ -256,8 +257,8 @@ class DatasetSnapshot(Base):
     #   "num_val": 200
     # }
 
-    # Relationships
-    created_by = relationship("User", backref="created_snapshots")
+    # Phase 11: User relationship removed (User table moved to User DB)
+    # created_by_user_id is just an integer reference, no relationship
 
 
 class Project(Base):
@@ -464,8 +465,10 @@ class TrainingJob(Base):
     session = relationship("Session", back_populates="training_jobs")
     project = relationship("Project", back_populates="training_jobs")
     experiment = relationship("Experiment", back_populates="training_jobs")
-    dataset = relationship("Dataset", back_populates="training_jobs", foreign_keys=[dataset_id])
-    dataset_snapshot = relationship("Dataset", back_populates="snapshot_training_jobs", foreign_keys=[dataset_snapshot_id])
+    # Phase 11.5: Dataset relationships removed (Dataset model deleted, managed by Labeler)
+    # dataset_id references Labeler UUID (no FK, no relationship)
+    # dataset_snapshot_id references DatasetSnapshot.id (FK exists, but no back_populates)
+    dataset_snapshot = relationship("DatasetSnapshot", foreign_keys=[dataset_snapshot_id])
     metrics = relationship("TrainingMetric", back_populates="job", cascade="all, delete-orphan")
     logs = relationship("TrainingLog", back_populates="job", cascade="all, delete-orphan")
     validation_results = relationship("ValidationResult", back_populates="job", cascade="all, delete-orphan")

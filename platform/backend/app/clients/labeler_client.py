@@ -117,7 +117,7 @@ class LabelerClient:
         try:
             headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.get(
-                f"/api/v1/datasets/{dataset_id}",
+                f"/api/v1/platform/datasets/{dataset_id}",
                 headers=headers
             )
             response.raise_for_status()
@@ -180,7 +180,7 @@ class LabelerClient:
         try:
             headers = self._get_auth_headers(user_id=requesting_user_id, scopes=["labeler:read"])
             response = await self.client.get(
-                "/api/v1/datasets",
+                "/api/v1/platform/datasets",
                 params=params,
                 headers=headers
             )
@@ -199,7 +199,7 @@ class LabelerClient:
         self,
         dataset_id: str,
         user_id: int
-    ) -> bool:
+    ) -> Dict[str, Any]:
         """
         Check if user has access to dataset.
 
@@ -208,19 +208,22 @@ class LabelerClient:
             user_id: User ID to check permissions for
 
         Returns:
-            True if user has access, False otherwise
+            Dict with permission info:
+            - has_access: bool
+            - is_owner: bool
+            - permission_level: str (none, read, write, admin, owner)
         """
         try:
             headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.get(
-                f"/api/v1/datasets/{dataset_id}/permissions/{user_id}",
+                f"/api/v1/platform/datasets/{dataset_id}/permissions/{user_id}",
                 headers=headers
             )
             if response.status_code == 404:
                 logger.warning(
                     f"[LabelerClient] Permission check: dataset {dataset_id} not found"
                 )
-                return False
+                return {"has_access": False, "is_owner": False, "permission_level": "none"}
 
             response.raise_for_status()
             result = response.json()
@@ -230,7 +233,7 @@ class LabelerClient:
                 f"[LabelerClient] check_permission(dataset={dataset_id}, user={user_id}): "
                 f"{has_access} ({result.get('permission_level', 'none')})"
             )
-            return has_access
+            return result
 
         except httpx.HTTPError as e:
             logger.error(
@@ -238,7 +241,7 @@ class LabelerClient:
                 f"(dataset={dataset_id}, user={user_id}): {e}"
             )
             # On error, deny access by default (fail-closed)
-            return False
+            return {"has_access": False, "is_owner": False, "permission_level": "none"}
 
     async def get_download_url(
         self,
@@ -268,7 +271,7 @@ class LabelerClient:
         try:
             headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.post(
-                f"/api/v1/datasets/{dataset_id}/download-url",
+                f"/api/v1/platform/datasets/{dataset_id}/download-url",
                 json=payload,
                 headers=headers
             )
@@ -324,7 +327,7 @@ class LabelerClient:
         try:
             headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.post(
-                "/api/v1/datasets/batch",
+                "/api/v1/platform/datasets/batch",
                 json=payload,
                 headers=headers
             )

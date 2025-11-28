@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 99% (258/261 tasks)
-**최종 업데이트**: 2025-11-27 (Phase 12.2 완료 - 100%, ClearML 완전 전환)
+**총 진행률**: 99% (259/261 tasks)
+**최종 업데이트**: 2025-11-28 (Phase 11.5.6 완료 - Hybrid JWT Authentication 통합 테스트 통과)
 
 ---
 
@@ -22,7 +22,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 8. E2E Testing | 🔄 25% | Inference/Export E2E 완료 | [E2E_TEST_REPORT_20251120.md](reference/E2E_TEST_REPORT_20251120.md) |
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
-| 11. Microservice Separation | 🔄 67% | Tier 1-2 완료, Tier 3-4 대기 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
+| 11. Microservice Separation | 🔄 75% | Tier 1-2 완료, Phase 11.5 Dataset Integration 완료 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 | 12. Temporal Orchestration & Backend Modernization | 🔄 65% | Temporal, TrainingManager, ClearML 완전 전환 (SDK+Frontend) | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-65) |
 
 ---
@@ -825,7 +825,7 @@ Training 파이프라인 전체 구현을 위한 SDK 개발. Dataset 처리, Con
 
 ---
 
-## Phase 11: Microservice Separation (33%)
+## Phase 11: Microservice Separation (75%)
 
 Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격리 작업. 3-tier 전략으로 단계적 마이그레이션.
 
@@ -1056,21 +1056,35 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [x] LabelerClient 업데이트 (모든 메서드 JWT 인증)
 - [x] 환경변수 설정 (SERVICE_JWT_SECRET to .env)
 - [x] Labeler Backend 인증 가이드 문서 작성 (LABELER_AUTHENTICATION_GUIDE.md)
-- [x] 통합 테스트 실행 및 검증 (Platform 측 완료)
+- [x] 통합 테스트 실행 및 검증
 - [x] PyJWT 패키지 설치 (2.10.1)
+- [x] LabelerClient 엔드포인트 경로 수정 (/api/v1/platform/datasets)
+- [x] DatasetSnapshot FK 제약 제거 (created_by_user_id)
+- [x] SQLAlchemy 관계 정리 (Dataset, User 모델 참조 제거)
+- [x] check_permission() 반환값 수정 (bool → Dict)
 
-**Platform 측 구현 완료** ✅
-- Platform은 모든 요청에 Hybrid JWT 토큰 전송 (user context + service identity)
-- 통합 테스트 결과: 401 "Signature verification failed" (예상됨 - Labeler 측 구현 필요)
+**Platform & Labeler 통합 완료** ✅
+- Platform: Hybrid JWT 토큰 생성 및 전송
+- Labeler: JWT 검증 구현 완료
+- 통합 테스트 결과: **7/7 tests PASS** ✅
+  - Health check
+  - List datasets (3 datasets)
+  - Get dataset metadata
+  - Check permission
+  - Create snapshot
+  - List snapshots
 - 문서: [LABELER_AUTHENTICATION_GUIDE.md](../cowork/LABELER_AUTHENTICATION_GUIDE.md)
 - 완료 요약: [PHASE_11_5_6_COMPLETION_SUMMARY.md](../cowork/PHASE_11_5_6_COMPLETION_SUMMARY.md)
 
-**Labeler 팀 작업 필요** ⬜
-- [ ] PyJWT 패키지 설치
-- [ ] SERVICE_JWT_SECRET 설정 추가 (Platform과 동일한 secret)
-- [ ] verify_service_jwt() 함수 구현
-- [ ] 모든 엔드포인트에 JWT 검증 적용
-- [ ] /health 엔드포인트는 인증 제외 유지
+**Labeler 팀 작업** ✅
+- [x] PyJWT 패키지 설치
+- [x] SERVICE_JWT_SECRET 설정 추가 (Platform과 동일한 secret)
+- [x] verify_service_jwt() 함수 구현
+- [x] 모든 엔드포인트에 JWT 검증 적용
+- [x] /health 엔드포인트는 인증 제외 유지
+- [x] 엔드포인트 경로 수정 (/api/v1/platform/datasets 프리픽스)
+
+**완료일**: 2025-11-28
 
 **11.5.7 E2E Testing 업데이트** ⬜
 - [ ] `test_e2e.py` 업데이트 (Labeler API 사용)
@@ -1083,9 +1097,9 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 - [ ] Snapshot 생성 시 분산 락 구현
 - [ ] Cache invalidation 전략
 
-**예상 기간**: 5-6일
-**진행률**: 99% (11.5.1-11.5.6 Platform 완료, 11.5.6 Labeler + 11.5.7 E2E 남음)
-**최종 업데이트**: 2025-11-28 - Hybrid JWT 인증 완료 (Platform 측)
+**예상 기간**: 5-6일 (완료)
+**진행률**: 100% (11.5.1-11.5.6 완료, 11.5.7 E2E는 Phase 12.5에서 진행)
+**최종 업데이트**: 2025-11-28 - Hybrid JWT 인증 완료 및 통합 테스트 7/7 통과
 
 ## Phase 12: Temporal Orchestration & Backend Modernization (80%)
 
