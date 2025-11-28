@@ -14,7 +14,7 @@ Vision AI Training Platform의 dataset 관리 책임을 Platform Backend에서 L
 **Key Decision**: Labeler가 모든 dataset 메타데이터를 소유하고, Platform은 Labeler API를 통해 dataset 정보를 조회합니다.
 
 **Reference Documents**:
-- `docs/integration/LABELER_DATASET_API_REQUIREMENTS.md` - Labeler API 명세 (레이블팀 전달용)
+- `docs/cowork/LABELER_DATASET_API_REQUIREMENTS.md` - Labeler API 명세 (레이블팀 전달용)
 - `docs/planning/PHASE_11_RAILWAY_DEPLOYMENT_PLAN.md` - Stage 2.5 Dataset Service Integration
 
 ---
@@ -763,7 +763,7 @@ headers = {
 ## Related Documents
 
 **Requirements & Specifications:**
-- `docs/integration/LABELER_DATASET_API_REQUIREMENTS.md` - Labeler API 명세 (레이블팀 전달용)
+- `docs/cowork/LABELER_DATASET_API_REQUIREMENTS.md` - Labeler API 명세 (레이블팀 전달용)
 
 **Planning & Roadmap:**
 - `docs/planning/PHASE_11_RAILWAY_DEPLOYMENT_PLAN.md` - Stage 2.5 Dataset Service Integration

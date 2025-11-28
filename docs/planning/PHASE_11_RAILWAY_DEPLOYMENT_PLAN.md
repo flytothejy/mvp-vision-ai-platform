@@ -309,7 +309,7 @@ Dataset 관리 책임을 Platform에서 Labeler로 완전히 이전하고, Platf
 - **Platform 역할**: Labeler API를 쿼리하여 dataset 정보 조회
 - **Platform DB**: dataset_id(UUID)만 FK로 저장, 메타데이터는 저장하지 않음
 
-**Reference**: `docs/integration/LABELER_DATASET_API_REQUIREMENTS.md`
+**Reference**: `docs/cowork/LABELER_DATASET_API_REQUIREMENTS.md`
 
 ### 2.5.1 Platform DB Dataset 의존성 분석 (Day 1)
 
@@ -774,7 +774,7 @@ GET /api/v1/datasets/{private_dataset_id}
 ### 2.5.7 문서화 및 Labeler 팀 전달 (Day 10)
 
 **전달 문서:**
-1. `docs/integration/LABELER_DATASET_API_REQUIREMENTS.md` (이미 작성 완료)
+1. `docs/cowork/LABELER_DATASET_API_REQUIREMENTS.md` (이미 작성 완료)
 2. Platform-Labeler 통합 테스트 결과
 3. 예상 트래픽 및 SLA 요구사항
 
@@ -1381,7 +1381,7 @@ rclone sync r2:vision-platform-datasets s3-glacier:backups/datasets
 - [x] 통합 테스트 시나리오
 
 **Stage 2.5 완료 후 공유:**
-- [x] Labeler API 요구사항 문서 (`docs/integration/LABELER_DATASET_API_REQUIREMENTS.md`)
+- [x] Labeler API 요구사항 문서 (`docs/cowork/LABELER_DATASET_API_REQUIREMENTS.md`)
 - [x] Platform DB Dataset FK 분석 결과
 - [ ] Platform LabelerClient 참고 구현
 - [ ] 통합 테스트 시나리오

@@ -992,7 +992,7 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 
 **설계 문서**:
 - [DATASET_MANAGEMENT_ARCHITECTURE.md](../architecture/DATASET_MANAGEMENT_ARCHITECTURE.md)
-- [LABELER_DATASET_API_REQUIREMENTS.md](../integration/LABELER_DATASET_API_REQUIREMENTS.md)
+- [LABELER_DATASET_API_REQUIREMENTS.md](../cowork/LABELER_DATASET_API_REQUIREMENTS.md)
 - [PHASE_11_RAILWAY_DEPLOYMENT_PLAN.md](../planning/PHASE_11_RAILWAY_DEPLOYMENT_PLAN.md) - Stage 2.5
 
 **아키텍처 원칙**:
@@ -1062,8 +1062,8 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 **Platform 측 구현 완료** ✅
 - Platform은 모든 요청에 Hybrid JWT 토큰 전송 (user context + service identity)
 - 통합 테스트 결과: 401 "Signature verification failed" (예상됨 - Labeler 측 구현 필요)
-- 문서: [LABELER_AUTHENTICATION_GUIDE.md](../architecture/LABELER_AUTHENTICATION_GUIDE.md)
-- 완료 요약: [PHASE_11_5_6_COMPLETION_SUMMARY.md](../architecture/PHASE_11_5_6_COMPLETION_SUMMARY.md)
+- 문서: [LABELER_AUTHENTICATION_GUIDE.md](../cowork/LABELER_AUTHENTICATION_GUIDE.md)
+- 완료 요약: [PHASE_11_5_6_COMPLETION_SUMMARY.md](../cowork/PHASE_11_5_6_COMPLETION_SUMMARY.md)
 
 **Labeler 팀 작업 필요** ⬜
 - [ ] PyJWT 패키지 설치

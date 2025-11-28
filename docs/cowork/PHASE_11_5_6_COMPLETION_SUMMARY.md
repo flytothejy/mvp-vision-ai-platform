@@ -59,7 +59,7 @@ SERVICE_JWT_SECRET: str = "service-jwt-secret-change-in-production-use-openssl-r
 
 ### 4. Documentation ✅
 
-**File**: `platform/docs/architecture/LABELER_AUTHENTICATION_GUIDE.md`
+**File**: `docs/cowork/LABELER_AUTHENTICATION_GUIDE.md`
 
 Comprehensive guide for Labeler team including:
 - JWT token structure explanation
@@ -243,8 +243,8 @@ Return Response (with permission enforcement)
 
 ### Created Files
 - `platform/backend/app/core/service_jwt.py` (384 lines)
-- `platform/docs/architecture/LABELER_AUTHENTICATION_GUIDE.md` (500+ lines)
-- `platform/docs/architecture/PHASE_11_5_6_COMPLETION_SUMMARY.md` (this file)
+- `docs/cowork/LABELER_AUTHENTICATION_GUIDE.md` (500+ lines)
+- `docs/cowork/PHASE_11_5_6_COMPLETION_SUMMARY.md` (this file)
 
 ### Modified Files
 - `platform/backend/.env` - Added SERVICE_JWT_SECRET

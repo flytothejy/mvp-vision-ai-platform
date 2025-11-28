@@ -27,7 +27,7 @@ Usage:
     payload = ServiceJWT.verify_token(token, required_scopes=["labeler:read"])
     user_id = payload["sub"]  # Extract user_id for permission checks
 
-Reference: docs/architecture/MICROSERVICE_AUTHENTICATION_ANALYSIS.md
+Reference: docs/cowork/MICROSERVICE_AUTHENTICATION_ANALYSIS.md
 """
 
 from datetime import datetime, timedelta
