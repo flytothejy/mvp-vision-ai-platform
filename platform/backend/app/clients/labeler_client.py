@@ -5,12 +5,14 @@ Client for communicating with Labeler Backend, which is the Single Source of Tru
 for dataset metadata and annotation management.
 
 Phase 11.5: Dataset Service Integration
+Phase 11.5.6: Hybrid JWT Authentication
 """
 
 from typing import List, Optional, Dict, Any
 import httpx
 import logging
 from app.core.config import settings
+from app.core.service_jwt import ServiceJWT
 
 logger = logging.getLogger(__name__)
 
@@ -30,28 +32,77 @@ class LabelerClient:
     - Check user permissions
     - Generate download URLs
     - Batch retrieve dataset metadata
+
+    Authentication (Phase 11.5.6):
+    Uses Hybrid JWT approach - generates short-lived service tokens (5min)
+    that include user context for permission checks and service identity for audit.
     """
 
     def __init__(self):
         self.base_url = settings.LABELER_API_URL
-        self.headers = {
-            "Authorization": f"Bearer {settings.LABELER_SERVICE_KEY}",
-            "Content-Type": "application/json",
-        }
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
-            headers=self.headers,
             timeout=30.0,
             follow_redirects=True,
         )
         logger.info(f"[LabelerClient] Initialized with base_url: {self.base_url}")
 
-    async def get_dataset(self, dataset_id: str) -> Dict[str, Any]:
+    def _get_service_token(self, user_id: Optional[int] = None, scopes: Optional[List[str]] = None) -> str:
+        """
+        Generate service JWT for Labeler API request.
+
+        Args:
+            user_id: User ID for permission checks (None for background jobs)
+            scopes: Required scopes (defaults to ["labeler:read"])
+
+        Returns:
+            JWT token string
+        """
+        if scopes is None:
+            scopes = ["labeler:read"]
+
+        if user_id is not None:
+            # User-initiated request (5min expiry)
+            token = ServiceJWT.create_service_token(
+                user_id=user_id,
+                service_name="platform",
+                scopes=scopes,
+                expires_minutes=5
+            )
+        else:
+            # Background job (1 hour expiry)
+            token = ServiceJWT.create_background_token(
+                service_name="platform-training",
+                scopes=scopes,
+                expires_hours=1
+            )
+
+        return token
+
+    def _get_auth_headers(self, user_id: Optional[int] = None, scopes: Optional[List[str]] = None) -> Dict[str, str]:
+        """
+        Get authorization headers with service JWT.
+
+        Args:
+            user_id: User ID for permission checks
+            scopes: Required scopes
+
+        Returns:
+            Headers dict with Authorization and Content-Type
+        """
+        token = self._get_service_token(user_id=user_id, scopes=scopes)
+        return {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+
+    async def get_dataset(self, dataset_id: str, user_id: Optional[int] = None) -> Dict[str, Any]:
         """
         Get single dataset metadata.
 
         Args:
             dataset_id: Dataset ID (UUID)
+            user_id: User ID for authentication (optional for background jobs)
 
         Returns:
             Dataset metadata dict with keys:
@@ -64,7 +115,11 @@ class LabelerClient:
             httpx.HTTPError: For other HTTP errors
         """
         try:
-            response = await self.client.get(f"/api/v1/datasets/{dataset_id}")
+            headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
+            response = await self.client.get(
+                f"/api/v1/datasets/{dataset_id}",
+                headers=headers
+            )
             response.raise_for_status()
             dataset = response.json()
             logger.info(f"[LabelerClient] get_dataset({dataset_id}): {dataset['name']}")
@@ -81,7 +136,8 @@ class LabelerClient:
 
     async def list_datasets(
         self,
-        user_id: Optional[int] = None,
+        requesting_user_id: Optional[int] = None,
+        owner_user_id: Optional[int] = None,
         visibility: Optional[str] = None,
         labeled: Optional[bool] = None,
         tags: Optional[List[str]] = None,
@@ -93,7 +149,8 @@ class LabelerClient:
         List datasets with filters.
 
         Args:
-            user_id: Filter by owner user ID
+            requesting_user_id: User making the request (for authentication)
+            owner_user_id: Filter by dataset owner user ID
             visibility: Filter by visibility (public, private, organization)
             labeled: Filter by annotation status
             tags: Filter by tags (AND logic)
@@ -109,8 +166,8 @@ class LabelerClient:
             - limit: Results per page
         """
         params = {"page": page, "limit": limit}
-        if user_id:
-            params["user_id"] = user_id
+        if owner_user_id:
+            params["user_id"] = owner_user_id
         if visibility:
             params["visibility"] = visibility
         if labeled is not None:
@@ -121,11 +178,16 @@ class LabelerClient:
             params["format"] = format
 
         try:
-            response = await self.client.get("/api/v1/datasets", params=params)
+            headers = self._get_auth_headers(user_id=requesting_user_id, scopes=["labeler:read"])
+            response = await self.client.get(
+                "/api/v1/datasets",
+                params=params,
+                headers=headers
+            )
             response.raise_for_status()
             result = response.json()
             logger.info(
-                f"[LabelerClient] list_datasets(user_id={user_id}, filters={visibility}): "
+                f"[LabelerClient] list_datasets(owner={owner_user_id}, filters={visibility}): "
                 f"{result.get('total', 0)} total, returned {len(result.get('datasets', []))}"
             )
             return result
@@ -143,14 +205,16 @@ class LabelerClient:
 
         Args:
             dataset_id: Dataset ID (UUID)
-            user_id: User ID
+            user_id: User ID to check permissions for
 
         Returns:
             True if user has access, False otherwise
         """
         try:
+            headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.get(
-                f"/api/v1/datasets/{dataset_id}/permissions/{user_id}"
+                f"/api/v1/datasets/{dataset_id}/permissions/{user_id}",
+                headers=headers
             )
             if response.status_code == 404:
                 logger.warning(
@@ -202,9 +266,11 @@ class LabelerClient:
         }
 
         try:
+            headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.post(
                 f"/api/v1/datasets/{dataset_id}/download-url",
-                json=payload
+                json=payload,
+                headers=headers
             )
             response.raise_for_status()
             result = response.json()
@@ -231,13 +297,15 @@ class LabelerClient:
 
     async def batch_get_datasets(
         self,
-        dataset_ids: List[str]
+        dataset_ids: List[str],
+        user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Batch retrieve dataset metadata.
 
         Args:
             dataset_ids: List of dataset IDs (up to 50)
+            user_id: User ID for authentication (optional for background jobs)
 
         Returns:
             Dict with keys:
@@ -254,9 +322,11 @@ class LabelerClient:
         payload = {"dataset_ids": dataset_ids}
 
         try:
+            headers = self._get_auth_headers(user_id=user_id, scopes=["labeler:read"])
             response = await self.client.post(
                 "/api/v1/datasets/batch",
-                json=payload
+                json=payload,
+                headers=headers
             )
             response.raise_for_status()
             result = response.json()
@@ -281,6 +351,8 @@ class LabelerClient:
     async def health_check(self) -> bool:
         """
         Check if Labeler API is reachable.
+
+        Note: Health check does not require authentication.
 
         Returns:
             True if Labeler API responds, False otherwise

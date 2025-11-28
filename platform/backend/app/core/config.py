@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Service-to-Service Authentication (Phase 11.5.6: Hybrid JWT)
+    # Separate secret for inter-service JWTs (different from user JWT_SECRET)
+    # Generated with: openssl rand -hex 32
+    SERVICE_JWT_SECRET: str = "service-jwt-secret-change-in-production-use-openssl-rand-hex-32"
+
     # Storage Paths (will be converted to absolute paths)
     # Note: Paths are relative to project root (mvp-vision-ai-platform/)
     UPLOAD_DIR: str = "./data/uploads"
