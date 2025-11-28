@@ -12,6 +12,7 @@ from app.db import models
 from app.schemas import training
 from app.core.config import settings
 from app.services.websocket_manager import get_websocket_manager
+from app.utils.dependencies import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -50,8 +51,8 @@ async def auto_create_snapshot_if_needed(
     from app.services.snapshot_service import snapshot_service
 
     try:
-        # Get dataset metadata from Labeler
-        dataset = await labeler_client.get_dataset(dataset_id)
+        # Get dataset metadata from Labeler (Phase 11.5.6: Pass user_id for JWT)
+        dataset = await labeler_client.get_dataset(dataset_id, user_id=user_id)
         logger.info(f"[SNAPSHOT] Retrieved dataset {dataset_id} from Labeler: {dataset['name']}")
 
         # Check if we have existing snapshots for this dataset
@@ -109,6 +110,7 @@ async def auto_create_snapshot_if_needed(
 @router.post("/jobs", response_model=training.TrainingJobResponse)
 async def create_training_job(
     job_request: training.TrainingJobCreate,
+    current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
@@ -116,9 +118,11 @@ async def create_training_job(
 
     This endpoint creates a training job but does not start it immediately.
     Use the /jobs/{job_id}/start endpoint to start training.
+
+    Phase 11.5.6: Requires authentication to pass user_id to Labeler API.
     """
     # DEBUG: Log what we received
-    logger.info(f"[DEBUG] Received training job request:")
+    logger.info(f"[DEBUG] Received training job request from user {current_user.id}:")
     logger.info(f"[DEBUG]   framework: {job_request.config.framework}")
     logger.info(f"[DEBUG]   model_name: {job_request.config.model_name}")
     logger.info(f"[DEBUG]   task_type: {job_request.config.task_type}")
@@ -144,16 +148,14 @@ async def create_training_job(
         from app.clients.labeler_client import labeler_client
 
         try:
-            # Get dataset metadata from Labeler
-            dataset = await labeler_client.get_dataset(config.dataset_id)
+            # Get dataset metadata from Labeler (Phase 11.5.6: Pass user_id for JWT)
+            dataset = await labeler_client.get_dataset(config.dataset_id, user_id=current_user.id)
             logger.info(f"[DATASET] Retrieved dataset from Labeler: {dataset['name']} (format: {dataset['format']})")
 
-            # Check user permission (requires user_id from job_request)
-            # TODO: Get current user from auth token instead of hardcoding
-            # For now, skip permission check (assume public dataset)
-            # has_access = await labeler_client.check_permission(config.dataset_id, user_id)
-            # if not has_access:
-            #     raise HTTPException(status_code=403, detail="Access denied to dataset")
+            # Check user permission
+            permission = await labeler_client.check_permission(config.dataset_id, current_user.id)
+            if not permission.get('has_access'):
+                raise HTTPException(status_code=403, detail="Access denied to dataset")
 
             # Use dataset information from Labeler
             dataset_id = dataset['id']
