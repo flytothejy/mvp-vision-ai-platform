@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 99% (259/261 tasks)
-**최종 업데이트**: 2025-11-28 (Phase 11.5.6 완료 - Hybrid JWT Authentication 통합 테스트 통과)
+**총 진행률**: 99% (260/261 tasks)
+**최종 업데이트**: 2025-11-29 (Phase 12.6.4 완료 - API 응답 스키마 수정 및 E2E 검증)
 
 ---
 
@@ -2271,7 +2271,7 @@ dual_storage.generate_checkpoint_download_url(...)
 
 ---
 
-### 12.6 Metadata-Only Snapshot & Temporal Integration (Day 12) 🔄
+### 12.6 Metadata-Only Snapshot & Temporal Integration (Day 12) ✅
 
 **목표**: DatasetSnapshot을 Metadata-Only로 개선하고 Temporal Workflow 통합
 
@@ -2325,20 +2325,35 @@ dual_storage.generate_checkpoint_download_url(...)
   - [x] Labeler에서 dataset 정보 조회 (user request context, JWT 있음)
   - [x] `snapshot_service.create_snapshot()` 호출
   - [x] `job.dataset_snapshot_id` 연결
+  - [x] `db.refresh(job)` 추가 (snapshot 설정 후 객체 상태 동기화)
 - [x] E2E 테스트 검증
   - [x] Snapshot 자동 생성 로직 실행 확인 ✅
   - [x] Split configuration 해결 확인 ✅
   - [x] Error handling 확인 (dataset 비어있을 때 job.status = "failed") ✅
-  - [ ] 실제 데이터로 전체 Workflow E2E 테스트 (데이터 준비 필요)
+  - [x] 실제 데이터로 전체 Workflow E2E 테스트 ✅ (Job 74-77 검증)
+- [x] API 응답 스키마 수정
+  - [x] TrainingJobResponse에 `workflow_id` 필드 추가
+  - [x] TrainingJobResponse에 `dataset_snapshot_id` 필드 추가
+  - [x] 실제 데이터 검증 (Job 74: snap_c3f9684a00c3, Job 75: snap_6dd46faff609)
 
-**구현 내용** (`app/api/training.py` Lines 304-345):
-- TrainingJob 생성 직후, Temporal Workflow 시작 직전에 snapshot 생성
-- `resolve_split_configuration()` 호출로 3-Level Priority 적용
-- `auto_create_snapshot_if_needed()` 호출로 snapshot 생성
-- Error 발생 시 job.status = "failed" 설정 및 HTTPException
+**구현 내용**:
+- `app/api/training.py` Lines 304-345: Snapshot 자동 생성
+  - TrainingJob 생성 직후, Temporal Workflow 시작 직전에 snapshot 생성
+  - `resolve_split_configuration()` 호출로 3-Level Priority 적용
+  - `auto_create_snapshot_if_needed()` 호출로 snapshot 생성
+  - Error 발생 시 job.status = "failed" 설정 및 HTTPException
+- `app/schemas/training.py` Lines 96-98: API 응답 스키마
+  - `workflow_id: Optional[str]` - Temporal Workflow ID
+  - `dataset_snapshot_id: Optional[str]` - Dataset Snapshot ID
 
-**완료**: 2025-01-28
-**커밋**: (pending)
+**검증 결과**:
+- Job 74: workflow_id=training-job-74, dataset_snapshot_id=snap_c3f9684a00c3
+- Job 75: workflow_id=training-job-75, dataset_snapshot_id=snap_6dd46faff609
+- Job 76: workflow_id=training-job-76, dataset_snapshot_id=snap_18b9b2f3b03a
+- Job 77: workflow_id=training-job-77, dataset_snapshot_id=null (direct dataset_path)
+
+**완료**: 2025-11-29
+**커밋**: 2b72b16
 
 #### 12.6.5 문서 작성 ✅
 - [x] TEMPORAL_WORKER_HYBRID_JWT_GUIDE.md (Background JWT 참고용)
