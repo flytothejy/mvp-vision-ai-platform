@@ -93,6 +93,10 @@ class TrainingJobResponse(BaseModel):
     notes: Optional[str] = None
     mlflow_run_id: Optional[str] = None
 
+    # Orchestration metadata (Phase 12)
+    workflow_id: Optional[str] = Field(None, description="Temporal Workflow ID")
+    dataset_snapshot_id: Optional[str] = Field(None, description="Dataset Snapshot ID (Phase 12.2)")
+
     framework: str
     model_name: str
     task_type: str

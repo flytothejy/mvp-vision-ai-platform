@@ -324,6 +324,7 @@ async def create_training_job(
             if snapshot_id:
                 job.dataset_snapshot_id = snapshot_id
                 db.commit()
+                db.refresh(job)  # Ensure job object reflects database state
                 logger.info(f"[JOB {job.id}] Using dataset snapshot: {snapshot_id}")
             else:
                 logger.warning(f"[JOB {job.id}] No snapshot created")
