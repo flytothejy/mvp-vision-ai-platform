@@ -182,7 +182,26 @@ def login(
         HTTPException: If credentials are invalid
     """
     # Find user by email (OAuth2 uses 'username' field)
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
+    try:
+        user = db.query(models.User).filter(models.User.email == form_data.username).first()
+    except Exception as e:
+        # Database connection error or other DB-related errors
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Database error during login: {str(e)}")
+
+        # Check if it's a connection error
+        error_msg = str(e).lower()
+        if "connection refused" in error_msg or "could not connect" in error_msg:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database server is not available. Please ensure PostgreSQL is running on port 5433."
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Database error: {str(e)}"
+            )
 
     if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
