@@ -63,6 +63,7 @@ class SampleDatasetInfo(BaseModel):
     class_names: Optional[List[str]] = None
     storage_path: str
     visibility: str
+    published_task_types: Optional[List[str]] = []  # Phase 16.6: Task types this dataset is published for
     created_at: str
     owner_id: int
 
@@ -70,7 +71,7 @@ class SampleDatasetInfo(BaseModel):
 @router.get("/available", response_model=List[SampleDatasetInfo])
 async def list_sample_datasets(
     labeled: Optional[bool] = Query(default=None, description="Filter by labeled status (true=has annotations, false=unlabeled)"),
-    task_type: Optional[str] = Query(default=None, description="Filter by task type (classification, detection, etc.)"),
+    task_type: Optional[str] = Query(default=None, description="Filter by task type (detection, segmentation, classification, etc.)"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -78,15 +79,17 @@ async def list_sample_datasets(
     List available datasets from Labeler.
 
     Phase 11.5: This endpoint proxies to Labeler API.
+    Phase 16.6: Added task_type filtering for task-specific statistics.
     - Labeler is Single Source of Truth for dataset metadata
     - Platform only manages snapshots for training
+    - task_type returns task-specific num_images and annotation_path
     """
     try:
-        # Query Labeler API for available datasets
+        # Query Labeler API for available datasets (Phase 16.6: with task_type)
         result = await labeler_client.list_datasets(
             requesting_user_id=current_user.id,
-            labeled=labeled
-            # Note: task_type filtering will be done client-side if needed
+            labeled=labeled,
+            task_type=task_type
         )
 
         datasets = result.get("datasets", [])

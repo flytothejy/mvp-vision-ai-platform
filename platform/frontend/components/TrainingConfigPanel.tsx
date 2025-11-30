@@ -75,6 +75,14 @@ export default function TrainingConfigPanel({
     fetchAvailableDatasets()
   }, [])
 
+  // Reload datasets when task_type changes (Phase 16.6: task-type-specific statistics)
+  useEffect(() => {
+    if (taskType) {
+      console.log('[DATASETS] Task type changed to:', taskType, '- Reloading datasets...')
+      fetchAvailableDatasets()
+    }
+  }, [taskType])
+
   // Load primary fields when framework changes
   useEffect(() => {
     if (framework) {
@@ -91,6 +99,7 @@ export default function TrainingConfigPanel({
 
       console.log('[DATASETS] baseUrl:', baseUrl)
       console.log('[DATASETS] token exists:', !!token)
+      console.log('[DATASETS] task_type:', taskType || 'not specified')
 
       if (!token) {
         console.error('[DATASETS] No access token found')
@@ -100,9 +109,16 @@ export default function TrainingConfigPanel({
         return
       }
 
-      console.log('[DATASETS] Calling API:', `${baseUrl}/datasets/available?labeled=true`)
+      // Phase 16.6: Include task_type for task-specific statistics
+      const params = new URLSearchParams({ labeled: 'true' })
+      if (taskType) {
+        params.append('task_type', taskType)
+      }
 
-      const response = await fetch(`${baseUrl}/datasets/available?labeled=true`, {
+      const apiUrl = `${baseUrl}/datasets/available?${params.toString()}`
+      console.log('[DATASETS] Calling API:', apiUrl)
+
+      const response = await fetch(apiUrl, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
