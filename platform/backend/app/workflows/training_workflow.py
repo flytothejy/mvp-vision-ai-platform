@@ -270,8 +270,7 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
             training_config["split_config"] = job.advanced_config["split_config"]
 
         # Build callback URL (base URL only - TrainerSDK adds operation-specific paths)
-        backend_port = "8000"  # Default for Tier 0
-        callback_url = f"http://localhost:{backend_port}/api/v1"
+        callback_url = f"http://localhost:{settings.BACKEND_PORT}/api/v1"
 
         # 4. Start training (legacy signature - will be refactored in Phase 12.1.x)
         training_metadata = await manager.start_training(
