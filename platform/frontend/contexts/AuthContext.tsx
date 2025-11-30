@@ -129,10 +129,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       })
 
-      if (userResponse.ok) {
-        const userData = await userResponse.json()
-        setUser(userData)
+      if (!userResponse.ok) {
+        // Clear tokens if user fetch fails
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+
+        let errorMessage = 'Failed to fetch user information'
+        try {
+          const error = await userResponse.json()
+          errorMessage = error.detail || errorMessage
+        } catch (e) {
+          // Ignore JSON parse error
+        }
+        throw new Error(`⚠️ 로그인은 성공했지만 사용자 정보를 가져올 수 없습니다.\n\n${errorMessage}`)
       }
+
+      const userData = await userResponse.json()
+      setUser(userData)
     } catch (error) {
       // Network error (server not running, CORS, etc.)
       if (error instanceof TypeError && error.message.includes('fetch')) {
