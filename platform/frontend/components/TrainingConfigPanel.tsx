@@ -23,6 +23,7 @@ interface TrainingConfig {
   framework?: string
   model_name?: string
   task_type?: string
+  dataset_id?: string  // Phase 12: Labeler integration
   dataset_path?: string
   dataset_format?: string
   epochs?: number
@@ -464,10 +465,17 @@ export default function TrainingConfigPanel({
 
       console.log('[DEBUG] Request body:', JSON.stringify(requestBody, null, 2))
 
+      // Get JWT token for authentication (Phase 12: Required for all training job creation)
+      const token = localStorage.getItem('access_token')
+      if (!token) {
+        throw new Error('인증이 필요합니다. 다시 로그인해주세요.')
+      }
+
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/training/jobs`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,  // Phase 12: JWT authentication
         },
         body: JSON.stringify(requestBody),
       })

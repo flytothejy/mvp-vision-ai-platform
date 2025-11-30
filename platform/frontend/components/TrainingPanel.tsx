@@ -83,6 +83,15 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
   const [activeTab, setActiveTab] = useState<'metrics' | 'validation' | 'test_inference' | 'export_deploy' | 'config' | 'logs'>('metrics')
   const logsContainerRef = useRef<HTMLDivElement>(null)
 
+  // Helper: Get auth headers (Phase 12: JWT required for all API calls)
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('access_token')
+    return {
+      'Content-Type': 'application/json',
+      ...(token && { 'Authorization': `Bearer ${token}` })
+    }
+  }
+
   // Export & Deploy modals
   const [showCreateExportModal, setShowCreateExportModal] = useState(false)
   const [showCreateDeploymentModal, setShowCreateDeploymentModal] = useState(false)
@@ -96,7 +105,8 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     if (!trainingJobId) return
     try {
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}`
+        `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}`,
+        { headers: getAuthHeaders() }
       )
       if (response.ok) {
         const data = await response.json()
@@ -233,7 +243,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: getAuthHeaders()
+        }
       )
 
       if (response.ok) {
@@ -273,7 +286,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       url.searchParams.append('checkpoint_path', latestCheckpoint.checkpoint_path)
       url.searchParams.append('resume', 'true')
 
-      const response = await fetch(url.toString(), { method: 'POST' })
+      const response = await fetch(url.toString(), { method: 'POST', headers: getAuthHeaders() })
 
       if (response.ok) {
         const data = await response.json()
@@ -296,7 +309,10 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     try {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/cancel`,
-        { method: 'POST' }
+        {
+          method: 'POST',
+          headers: getAuthHeaders()
+        }
       )
 
       if (response.ok) {
@@ -340,7 +356,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       // First reset the job
       const restartResponse = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/restart`,
-        { method: 'POST' }
+        { method: 'POST', headers: getAuthHeaders() }
       )
 
       if (!restartResponse.ok) {
@@ -356,7 +372,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       // Then start training
       const startResponse = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/start`,
-        { method: 'POST' }
+        { method: 'POST', headers: getAuthHeaders() }
       )
 
       if (startResponse.ok) {
@@ -393,7 +409,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       // First reset the job to pending state
       const restartResponse = await fetch(
         `${process.env.NEXT_PUBLIC_API_URL}/training/jobs/${trainingJobId}/restart`,
-        { method: 'POST' }
+        { method: 'POST', headers: getAuthHeaders() }
       )
 
       if (!restartResponse.ok) {
@@ -415,7 +431,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
       url.searchParams.append('checkpoint_path', latestCheckpoint.checkpoint_path)
       url.searchParams.append('resume', 'true')
 
-      const startResponse = await fetch(url.toString(), { method: 'POST' })
+      const startResponse = await fetch(url.toString(), { method: 'POST', headers: getAuthHeaders() })
 
       if (startResponse.ok) {
         const startData = await startResponse.json()
