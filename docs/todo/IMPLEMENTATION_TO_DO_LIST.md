@@ -2,8 +2,8 @@
 
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
-**총 진행률**: 100% (261/261 tasks)
-**최종 업데이트**: 2025-11-29 (Phase 12.5 완료 - E2E 통합 테스트 완료, Phase 12 전체 검증 완료)
+**총 진행률**: 100% (265/265 tasks)
+**최종 업데이트**: 2025-11-30 (Phase 12.7 완료 - Frontend 인증 통합 및 E2E 플로우 검증 완료)
 
 ---
 
@@ -23,7 +23,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 9. Thin SDK | ✅ 85% | 핵심 기능 완료, 리팩토링 필요 | [THIN_SDK_DESIGN.md](references/THIN_SDK_DESIGN.md) |
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 75% | Tier 1-2 완료, Phase 11.5 Dataset Integration 완료 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
-| 12. Temporal Orchestration & Backend Modernization | 🔄 65% | Temporal, TrainingManager, ClearML 완전 전환 (SDK+Frontend) | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-65) |
+| 12. Temporal Orchestration & Backend Modernization | 🔄 85% | Temporal, TrainingManager, ClearML 완전 전환, Frontend 인증 통합 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-85) |
 
 ---
 
@@ -1101,7 +1101,7 @@ Platform-Labeler 마이크로서비스 분리를 위한 데이터베이스 격�
 **진행률**: 100% (11.5.1-11.5.6 완료, 11.5.7 E2E는 Phase 12.5에서 진행)
 **최종 업데이트**: 2025-11-28 - Hybrid JWT 인증 완료 및 통합 테스트 7/7 통과
 
-## Phase 12: Temporal Orchestration & Backend Modernization (80%)
+## Phase 12: Temporal Orchestration & Backend Modernization (85%)
 
 **브랜치**: `feature/phase-12.2-clearml-migration`
 
@@ -1127,6 +1127,8 @@ Temporal Workflow 도입으로 Training 파이프라인 현대화 및 Backend �
 - Phase 12.3 (Storage Pattern): ✅ 100% (2025-11-27)
 - Phase 12.4 (Callback Refactoring): ✅ 100% (2025-11-27)
 - Phase 12.5 (E2E Testing): ✅ 100% (2025-11-29) - Complete E2E validation (API + Temporal + Labeler + Snapshots)
+- Phase 12.6 (Metadata-Only Snapshot): ✅ 100% (2025-11-29) - Metadata-only snapshot, Temporal integration
+- Phase 12.7 (Frontend Integration): ✅ 100% (2025-11-30) - JWT authentication, UI verification
 
 ---
 
@@ -2403,6 +2405,79 @@ dual_storage.generate_checkpoint_download_url(...)
 - 스토리지 효율 99% 향상
 - Temporal Workflow 완전 동작
 - Labeler 팀 작업 0시간 (불필요)
+
+---
+
+### 12.7 Frontend Integration & Authentication (Day 13) ✅
+
+**목표**: Frontend-Backend 완전 통합 및 인증 문제 해결
+
+**브랜치**: `feature/phase-12.2-clearml-migration`
+
+**배경**:
+- Phase 11.5.6에서 모든 training API에 JWT 인증 추가
+- Frontend 컴포넌트가 인증 헤더 없이 API 호출로 401 에러 발생
+- Phase 12 metadata (workflow_id, dataset_snapshot_id) UI 표시 필요
+
+#### 12.7.1 JWT Authentication 추가 ✅
+- [x] TrainingConfigPanel - Job 생성 시 Authorization 헤더 추가
+- [x] TrainingPanel - 모든 training API 호출에 JWT 추가
+  - [x] `getAuthHeaders()` 헬퍼 함수 구현
+  - [x] `fetchJob()` 인증 추가
+  - [x] `startTrainingFromScratch()` 인증 추가
+  - [x] `cancelTraining()` 인증 추가
+  - [x] `restartTraining()` 인증 추가
+- [x] TypeScript 타입 정의 수정
+  - [x] TrainingConfig에 `dataset_id` 필드 추가
+  - [x] TrainingJob에 `workflow_id`, `dataset_snapshot_id` 필드 추가
+
+**완료**: 2025-11-30
+**커밋**: 35fcd2b
+
+#### 12.7.2 Frontend 컴포넌트 검증 ✅
+- [x] 전체 사용자 플로우 검증
+  - [x] 프로젝트 진입 (Sidebar 네비게이션)
+  - [x] 모델 선택 (ModelSelector - `/models/list` public API)
+  - [x] 데이터셋 선택 (Labeler 통합 - `/datasets/available` with JWT)
+  - [x] 설정 (Basic + Advanced Config)
+  - [x] Job 생성 (JWT 인증 포함)
+  - [x] Training 제어 (Start/Stop/Restart all with JWT)
+  - [x] WebSocket 모니터링 (`/ws/training` no auth by design)
+  - [x] 실시간 메트릭 표시
+- [x] Phase 12 메타데이터 UI 표시
+  - [x] workflow_id (파란색 배지)
+  - [x] dataset_snapshot_id (녹색 배지)
+
+**완료**: 2025-11-30
+**커밋**: 9d8129c
+
+#### 12.7.3 API 인증 매트릭스 문서화 ✅
+| Endpoint | Auth Required | Frontend Implementation |
+|----------|---------------|------------------------|
+| `POST /training/jobs` | ✅ | ✅ JWT 추가 |
+| `POST /training/jobs/{id}/start` | ✅ | ✅ JWT 추가 |
+| `POST /training/jobs/{id}/cancel` | ✅ | ✅ JWT 추가 |
+| `POST /training/jobs/{id}/restart` | ✅ | ✅ JWT 추가 |
+| `GET /training/jobs/{id}` | ✅ | ✅ JWT 추가 |
+| `GET /datasets/available` | ✅ | ✅ 이미 구현됨 |
+| `GET /models/list` | ❌ | ✅ Public API |
+| `POST /config/validate` | ❌ | ✅ Public API |
+| `WS /ws/training` | ❌ | ✅ No auth by design |
+
+**완료**: 2025-11-30
+
+#### 12.7.4 PR 업데이트 ✅
+- [x] PR #41에 Phase 12.7 문서화
+- [x] 완전한 E2E 플로우 테스트 가이드 작성
+- [x] Production Readiness 체크리스트
+
+**완료**: 2025-11-30
+
+**효과**:
+- 모든 401 Unauthorized 에러 해결
+- 완전한 E2E 사용자 플로우 동작
+- Phase 12 메타데이터 실시간 표시
+- Production 배포 준비 완료
 
 ---
 
