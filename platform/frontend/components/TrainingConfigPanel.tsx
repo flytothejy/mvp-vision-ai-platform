@@ -70,16 +70,13 @@ export default function TrainingConfigPanel({
   const [isLoadingDatasets, setIsLoadingDatasets] = useState(true)
 
   // Load available datasets from Backend API
-  useEffect(() => {
-    console.log('[TrainingConfigPanel] Component mounted, fetching datasets...')
-    fetchAvailableDatasets()
-  }, [])
-
-  // Reload datasets when task_type changes (Phase 16.6: task-type-specific statistics)
+  // Phase 16.6: Wait until task_type is set (from model selection)
   useEffect(() => {
     if (taskType) {
-      console.log('[DATASETS] Task type changed to:', taskType, '- Reloading datasets...')
+      console.log('[DATASETS] Task type is set:', taskType, '- Fetching datasets...')
       fetchAvailableDatasets()
+    } else {
+      console.log('[DATASETS] Task type not set yet, skipping dataset fetch')
     }
   }, [taskType])
 
@@ -90,6 +87,20 @@ export default function TrainingConfigPanel({
     }
   }, [framework])
 
+  // Map Platform task_type to Labeler task_type (Phase 16.6)
+  const mapTaskTypeForLabeler = (platformTaskType: string): string => {
+    const mapping: Record<string, string> = {
+      'image_classification': 'classification',
+      'object_detection': 'detection',
+      'instance_segmentation': 'segmentation',
+      'semantic_segmentation': 'segmentation',
+      'pose_estimation': 'pose',
+      'zero_shot_detection': 'detection',
+      // Fallback: use as-is
+    }
+    return mapping[platformTaskType] || platformTaskType
+  }
+
   const fetchAvailableDatasets = async () => {
     console.log('[DATASETS] fetchAvailableDatasets() called')
     try {
@@ -99,7 +110,7 @@ export default function TrainingConfigPanel({
 
       console.log('[DATASETS] baseUrl:', baseUrl)
       console.log('[DATASETS] token exists:', !!token)
-      console.log('[DATASETS] task_type:', taskType || 'not specified')
+      console.log('[DATASETS] Platform task_type:', taskType || 'not specified')
 
       if (!token) {
         console.error('[DATASETS] No access token found')
@@ -110,9 +121,12 @@ export default function TrainingConfigPanel({
       }
 
       // Phase 16.6: Include task_type for task-specific statistics
+      // Map Platform task_type to Labeler task_type
       const params = new URLSearchParams({ labeled: 'true' })
       if (taskType) {
-        params.append('task_type', taskType)
+        const labelerTaskType = mapTaskTypeForLabeler(taskType)
+        console.log('[DATASETS] Labeler task_type:', labelerTaskType)
+        params.append('task_type', labelerTaskType)
       }
 
       const apiUrl = `${baseUrl}/datasets/available?${params.toString()}`
