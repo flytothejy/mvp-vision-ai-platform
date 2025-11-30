@@ -91,6 +91,11 @@ async def list_sample_datasets(
 
         datasets = result.get("datasets", [])
         logger.info(f"[DATASETS] Retrieved {len(datasets)} datasets from Labeler for user {current_user.id}")
+
+        # DEBUG: Log first dataset to check field mapping
+        if datasets:
+            logger.info(f"[DATASETS] First dataset sample: {datasets[0]}")
+
         return datasets
 
     except httpx.HTTPStatusError as e:
