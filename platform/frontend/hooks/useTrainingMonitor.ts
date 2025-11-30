@@ -90,9 +90,13 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      console.log('[TrainingMonitor] Already connected');
-      return;
+    // Prevent duplicate connections (including CONNECTING and CLOSING states)
+    if (wsRef.current) {
+      const state = wsRef.current.readyState;
+      if (state === WebSocket.OPEN || state === WebSocket.CONNECTING) {
+        console.log('[TrainingMonitor] Already connected or connecting');
+        return;
+      }
     }
 
     // Build WebSocket URL
@@ -238,7 +242,8 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
     return () => {
       disconnect();
     };
-  }, [autoConnect, connect, disconnect]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoConnect]); // Only depend on autoConnect to prevent reconnection loops
 
   return {
     isConnected,

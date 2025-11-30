@@ -472,12 +472,6 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     ? Math.round((progress.currentEpoch / progress.totalEpochs) * 100)
     : 0
 
-  // Debug logging
-  console.log('[DEBUG] Progress:', progress)
-  console.log('[DEBUG] Job status:', job?.status)
-  console.log('[DEBUG] Metrics length:', metrics.length)
-  console.log('[DEBUG] Epoch progress percent:', epochProgressPercent)
-
   const getStatusBadge = (status: string) => {
     const styles = {
       pending: 'bg-gray-100 text-gray-800',
