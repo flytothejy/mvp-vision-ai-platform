@@ -26,6 +26,7 @@ interface TrainingJob {
   num_classes: number | null
   dataset_format: string
   dataset_path?: string
+  dataset_id?: string
   output_dir?: string
   epochs: number
   batch_size: number
@@ -35,6 +36,9 @@ interface TrainingJob {
   final_accuracy: number | null
   primary_metric: string | null
   primary_metric_mode: string | null
+  // Phase 12: Temporal Workflow & Dataset Snapshot metadata
+  workflow_id?: string | null
+  dataset_snapshot_id?: string | null
 }
 
 interface TrainingMetric {
@@ -1068,13 +1072,58 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   {/* Dataset Path */}
                   <div>
                     <h4 className="text-sm font-semibold text-gray-700 mb-3">데이터셋</h4>
-                    <div className="text-sm">
-                      <span className="text-gray-600">경로:</span>
-                      <p className="mt-1 font-mono text-xs text-gray-900 bg-gray-50 p-2 rounded border border-gray-200 break-all">
-                        {job.dataset_path || 'N/A'}
-                      </p>
+                    <div className="space-y-3 text-sm">
+                      {job.dataset_id && (
+                        <div>
+                          <span className="text-gray-600">데이터셋 ID:</span>
+                          <p className="mt-1 font-mono text-xs text-gray-900 bg-gray-50 p-2 rounded border border-gray-200 break-all">
+                            {job.dataset_id}
+                          </p>
+                        </div>
+                      )}
+                      {job.dataset_path && (
+                        <div>
+                          <span className="text-gray-600">경로:</span>
+                          <p className="mt-1 font-mono text-xs text-gray-900 bg-gray-50 p-2 rounded border border-gray-200 break-all">
+                            {job.dataset_path}
+                          </p>
+                        </div>
+                      )}
+                      {job.dataset_snapshot_id && (
+                        <div>
+                          <span className="text-gray-600 flex items-center gap-1">
+                            Snapshot ID:
+                            <span className="text-xs text-green-600 bg-green-50 px-1.5 py-0.5 rounded">Phase 12</span>
+                          </span>
+                          <p className="mt-1 font-mono text-xs text-gray-900 bg-green-50 p-2 rounded border border-green-200 break-all">
+                            {job.dataset_snapshot_id}
+                          </p>
+                          <p className="mt-1 text-xs text-gray-500">
+                            재현 가능한 메타데이터 전용 스냅샷 (~500 bytes)
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {/* Workflow Orchestration */}
+                  {job.workflow_id && (
+                    <div>
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                        워크플로우 오케스트레이션
+                        <span className="text-xs text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Phase 12</span>
+                      </h4>
+                      <div className="text-sm">
+                        <span className="text-gray-600">Temporal Workflow ID:</span>
+                        <p className="mt-1 font-mono text-xs text-gray-900 bg-blue-50 p-2 rounded border border-blue-200 break-all">
+                          {job.workflow_id}
+                        </p>
+                        <p className="mt-2 text-xs text-gray-500">
+                          이 작업은 Temporal Workflow로 오케스트레이션되어 장기 실행 작업의 안정성과 재시작 기능을 제공합니다.
+                        </p>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Output Directory */}
                   <div>
