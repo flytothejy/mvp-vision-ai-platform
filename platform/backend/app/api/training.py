@@ -345,41 +345,12 @@ async def create_training_job(
                 detail=f"Failed to create dataset snapshot: {str(e)}"
             )
 
-    # Phase 12.0: Start Temporal workflow for training execution
-    logger.info(f"[TRAINING] Starting Temporal workflow for job {job.id}")
-    try:
-        from app.core.temporal_client import get_temporal_client
-        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
-
-        temporal_client = await get_temporal_client()
-
-        # Start workflow
-        workflow_id = f"training-job-{job.id}"
-        workflow_handle = await temporal_client.start_workflow(
-            TrainingWorkflow.run,
-            TrainingWorkflowInput(job_id=job.id),
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
-
-        # Update job with workflow_id
-        job.workflow_id = workflow_id
-        db.commit()
-        db.refresh(job)
-
-        logger.info(f"[TRAINING] Workflow started: {workflow_id}")
-        logger.info(f"  Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}")
-
-    except Exception as e:
-        logger.error(f"[TRAINING] Failed to start workflow for job {job.id}: {e}")
-        # Job is created but workflow failed - mark as failed
-        job.status = "failed"
-        job.error_message = f"Failed to start workflow: {str(e)}"
-        db.commit()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Training job created but workflow failed to start: {str(e)}"
-        )
+    # Phase 12.7: Job created successfully
+    # Training will be started via POST /jobs/{job_id}/start endpoint
+    logger.info(f"[JOB {job.id}] Training job created successfully (status: pending)")
+    logger.info(f"[JOB {job.id}] Framework: {job.framework}, Model: {job.model_name}, Task: {job.task_type}")
+    if job.dataset_snapshot_id:
+        logger.info(f"[JOB {job.id}] Dataset snapshot: {job.dataset_snapshot_id}")
 
     # Add project_name for breadcrumb navigation
     if job.project_id and job.project:
@@ -575,8 +546,9 @@ async def start_training_job(
         client = await get_temporal_client()
         logger.info(f"[JOB {job_id}] Temporal client ready")
 
-        # Generate workflow ID
-        workflow_id = f"training-job-{job_id}"
+        # Generate unique workflow ID (with timestamp to allow retries)
+        timestamp = int(datetime.utcnow().timestamp())
+        workflow_id = f"training-job-{job_id}-{timestamp}"
 
         # Start TrainingWorkflow
         workflow_handle = await client.start_workflow(

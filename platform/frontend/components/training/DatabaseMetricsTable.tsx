@@ -47,9 +47,6 @@ export default function DatabaseMetricsTable({
   onCheckpointSelect,
   jobStatus,
 }: DatabaseMetricsTableProps) {
-  console.log('[DatabaseMetricsTable] Received metrics:', metrics);
-  console.log('[DatabaseMetricsTable] Metrics length:', metrics?.length);
-  console.log('[DatabaseMetricsTable] Job status:', jobStatus);
 
   // Fetch metric schema for dynamic columns (don't fetch if pending)
   const { data: metricSchema, isLoading: schemaLoading } = useSWR<MetricSchema>(
@@ -62,19 +59,11 @@ export default function DatabaseMetricsTable({
     }
   );
 
-  console.log('[DatabaseMetricsTable] Metric schema:', metricSchema);
-  console.log('[DatabaseMetricsTable] Schema loading:', schemaLoading);
-
   // Get metric columns from schema, or extract from actual metrics data
   // IMPORTANT: useMemo must be called before any conditional returns (React hooks rule)
   const metricColumns = useMemo(() => {
-    console.log('[DatabaseMetricsTable useMemo] Calculating metric columns');
-    console.log('[DatabaseMetricsTable useMemo] metricSchema:', metricSchema);
-    console.log('[DatabaseMetricsTable useMemo] metrics.length:', metrics?.length || 0);
-
     if (metricSchema?.available_metrics && metricSchema.available_metrics.length > 0) {
       // Use schema if available
-      console.log('[DatabaseMetricsTable useMemo] Using schema columns:', metricSchema.available_metrics);
       return metricSchema.available_metrics;
     }
 
@@ -100,19 +89,14 @@ export default function DatabaseMetricsTable({
     });
 
     const extractedColumns = Array.from(allKeys).sort();
-    console.log('[DatabaseMetricsTable useMemo] Extracted columns from metrics:', extractedColumns);
     return extractedColumns;
   }, [metrics, metricSchema]);
 
   const primaryMetric = metricSchema?.primary_metric || 'loss';
   const primaryMetricMode = metricSchema?.primary_metric_mode || 'min';
 
-  console.log('[DatabaseMetricsTable] Final metricColumns:', metricColumns);
-  console.log('[DatabaseMetricsTable] Final primaryMetric:', primaryMetric);
-
   // Early return AFTER all hooks
   if (!metrics || metrics.length === 0) {
-    console.log('[DatabaseMetricsTable] No metrics, showing empty state');
 
     // Show message without spinner for pending status
     if (jobStatus === 'pending') {
@@ -138,7 +122,6 @@ export default function DatabaseMetricsTable({
 
   // Show last 10 epochs
   const recentMetrics = metrics.slice(-10).reverse();
-  console.log('[DatabaseMetricsTable] Recent metrics count:', recentMetrics.length);
 
   // Helper function to format metric display name
   const formatMetricName = (key: string): string => {
