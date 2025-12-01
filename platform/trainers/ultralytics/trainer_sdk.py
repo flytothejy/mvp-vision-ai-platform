@@ -1094,7 +1094,8 @@ class TrainerSDK:
                 # Extract everything after "datasets/{dataset_id}/"
                 dataset_id_from_root = parts[1]
                 local_image_root = '/'.join(parts[2:])  # Everything after "datasets/{dataset_id}/"
-                logger.info(f"Extracted local image root: '{local_image_root}' from storage_info")
+                logger.info(f"[storage_info] S3 image_root: '{image_root_s3}'")
+                logger.info(f"[storage_info] Extracted local_image_root: '{local_image_root}'")
 
         images = data.get('images', [])
 
@@ -1166,9 +1167,11 @@ class TrainerSDK:
             width = img['width']
             height = img['height']
 
-            # Get image stem for label file
-            img_stem = Path(file_name).stem
-            label_file = labels_dir / f"{img_stem}.txt"
+            # Get image stem for label file, preserving directory structure
+            img_path = Path(file_name)
+            label_subdir = labels_dir / img_path.parent
+            label_subdir.mkdir(parents=True, exist_ok=True)
+            label_file = label_subdir / f"{img_path.stem}.txt"
 
             # Get annotations for this image
             img_anns = image_annotations.get(image_id, [])
@@ -1269,7 +1272,8 @@ class TrainerSDK:
                 )
 
             # Use relative path from dataset_dir for YOLO
-            # YOLO needs the path relative to dataset_dir
+            # YOLO expects paths relative to data.yaml's 'path' parameter
+            # Labels will be found automatically by replacing 'images' with 'labels'
             if local_image_root:
                 image_path = str(Path(local_image_root) / file_name).replace('\\', '/')
             else:

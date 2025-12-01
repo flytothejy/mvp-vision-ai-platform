@@ -121,11 +121,26 @@ async def create_training_job(
 
     Phase 11.5.6: Requires authentication to pass user_id to Labeler API.
     """
-    # DEBUG: Log what we received
-    logger.info(f"[DEBUG] Received training job request from user {current_user.id}:")
-    logger.info(f"[DEBUG]   framework: {job_request.config.framework}")
-    logger.info(f"[DEBUG]   model_name: {job_request.config.model_name}")
-    logger.info(f"[DEBUG]   task_type: {job_request.config.task_type}")
+    # Log and save full request body for test script replication
+    import json
+    from pathlib import Path
+    from datetime import datetime
+
+    request_data = job_request.model_dump()
+
+    # Save to file
+    debug_dir = Path("debug")
+    debug_dir.mkdir(exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    request_file = debug_dir / f"training_request_{timestamp}.json"
+    with open(request_file, 'w') as f:
+        json.dump(request_data, f, indent=2, default=str)
+
+    logger.info(f"===== TRAINING JOB CREATE REQUEST (User: {current_user.id}) =====")
+    logger.info(f"Request saved to: {request_file}")
+    logger.info(f"Request body JSON:")
+    logger.info(json.dumps(request_data, indent=2, default=str))
+    logger.info(f"===============================================")
 
     # Validate required fields
     config = job_request.config
