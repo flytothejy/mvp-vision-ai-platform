@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
-import MLflowMetricsCharts from './training/MLflowMetricsCharts'
+// import MLflowMetricsCharts from './training/MLflowMetricsCharts' // Removed: Migrated to ClearML
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
 import { ValidationDashboard } from './training/validation/ValidationDashboard'
@@ -805,12 +805,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   </a>
                 </div>
               </div>
-              <MLflowMetricsCharts
-                jobId={job.id}
-                selectedMetrics={selectedMetrics}
-                jobStatus={job.status}
-                refreshKey={metricsRefreshKey}
-              />
+              {/* MLflowMetricsCharts removed - migrated to ClearML */}
             </div>
 
             {/* Metrics Table - Hide when pending */}
