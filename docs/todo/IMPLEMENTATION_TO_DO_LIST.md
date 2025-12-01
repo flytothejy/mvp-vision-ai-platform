@@ -3,7 +3,7 @@
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
 **총 진행률**: 100% (265/265 tasks)
-**최종 업데이트**: 2025-11-30 (Phase 12.7 완료 - Frontend 인증 통합 및 E2E 플로우 검증 완료)
+**최종 업데이트**: 2025-12-01 (Phase 12.8 추가 - S3 Credential 보안 취약점 해결 계획 수립)
 
 ---
 
@@ -2478,6 +2478,242 @@ dual_storage.generate_checkpoint_download_url(...)
 - 완전한 E2E 사용자 플로우 동작
 - Phase 12 메타데이터 실시간 표시
 - Production 배포 준비 완료
+
+---
+
+### 12.8 Security Enhancement - Presigned URL Dataset Access (Day 14) 🔄
+
+**목표**: Trainer subprocess에 S3 credentials 노출 제거 및 보안 강화
+
+**브랜치**: `feature/phase-12.2-clearml-migration`
+
+**배경**:
+현재 구현에서 Trainer subprocess는 Backend로부터 **전체 S3 credentials**를 환경변수로 받아 boto3 클라이언트를 생성합니다. 이는 심각한 보안 취약점을 야기합니다:
+
+**현재 문제점**:
+1. **Credential 탈취 위험**: 악의적인 trainer 코드가 S3 credentials를 외부로 전송 가능
+2. **무제한 접근**: Trainer가 자신에게 할당된 dataset 외에도 버킷 내 모든 dataset에 접근 가능
+3. **K8s 환경 노출**: Pod spec의 환경변수에 credentials가 평문으로 노출됨
+4. **사용자 제출 코드 실행 불가**: Trainer Marketplace 구현 시 사용자 custom trainer를 안전하게 실행할 수 없음
+5. **데이터 유출/삭제 위험**: Full write 권한으로 데이터 삭제 또는 변조 가능
+
+**현재 구현 위치**:
+- Backend: `platform/backend/app/core/training_managers/subprocess_manager.py:199-210`
+  - `EXTERNAL_STORAGE_ACCESS_KEY`, `EXTERNAL_STORAGE_SECRET_KEY` 환경변수로 전달
+- TrainerSDK: `platform/trainers/ultralytics/trainer_sdk.py:88-100`
+  - boto3 클라이언트 생성 시 환경변수에서 credentials 읽음
+
+#### 12.8.1 Presigned URL 아키텍처 설계 ⬜
+
+**설계 목표**:
+- Trainer는 **HTTP GET만 가능한 time-limited presigned URLs** 사용
+- Backend가 특정 dataset에 대한 presigned URL 생성 (read-only)
+- URL 만료 시간: 1시간 (training 시작 전 생성, 충분한 여유)
+
+**흐름**:
+```
+1. Backend Temporal Activity (prepare_dataset)
+   → DualStorageClient.generate_presigned_url_for_directory() 호출
+   → S3 prefix 내 모든 파일의 presigned URL 맵 생성
+   → {"images/bottle/000.png": "https://r2.../...?X-Amz-Signature=...", ...}
+
+2. Backend → Trainer 환경변수
+   ❌ 제거: EXTERNAL_STORAGE_ACCESS_KEY, EXTERNAL_STORAGE_SECRET_KEY
+   ✅ 추가: PRESIGNED_URLS_JSON (JSON string)
+
+3. TrainerSDK download_dataset()
+   ❌ 제거: boto3 S3 client with credentials
+   ✅ 추가: HTTP GET requests with presigned URLs
+```
+
+**작업 항목**:
+- [ ] DualStorageClient에 `generate_presigned_url_for_directory()` 메서드 추가
+  - S3 prefix 탐색 (list_objects_v2)
+  - 각 파일별 presigned URL 생성 (1시간 만료)
+  - 딕셔너리 형태로 반환: `{relative_path: presigned_url}`
+- [ ] Temporal Activity `prepare_dataset` 수정
+  - presigned URL 맵 생성
+  - JSON 직렬화하여 job.metadata['presigned_urls'] 저장
+- [ ] SubprocessManager 환경변수 변경
+  - credentials 제거
+  - `PRESIGNED_URLS_JSON` 추가
+
+**완료 기준**:
+- `dual_storage.py`에 presigned URL 생성 로직 구현
+- Temporal Activity에서 URL 생성 확인
+- Backend 환경변수 정리
+
+**예상 시간**: 0.5일
+
+---
+
+#### 12.8.2 TrainerSDK HTTP Download 구현 ⬜
+
+**목표**: TrainerSDK에서 boto3 제거 및 HTTP GET 기반 다운로드 구현
+
+**변경 위치**: `platform/trainers/ultralytics/trainer_sdk.py`
+
+**Before (boto3 with credentials)**:
+```python
+class StorageClient:
+    def __init__(self, endpoint: str, access_key: str, secret_key: str, bucket: str):
+        self.client = boto3.client(
+            's3',
+            endpoint_url=endpoint,
+            aws_access_key_id=access_key,        # ⚠️ Full credentials
+            aws_secret_access_key=secret_key,
+        )
+
+    def download_directory(self, prefix: str, local_dir: str):
+        # List objects using credentials
+        paginator = self.client.get_paginator('list_objects_v2')
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for obj in page.get('Contents', []):
+                self.client.download_file(...)  # ⚠️ Requires credentials
+```
+
+**After (HTTP GET with presigned URLs)**:
+```python
+import requests
+import json
+from typing import Dict
+
+class StorageClient:
+    def __init__(self, presigned_urls: Dict[str, str]):
+        """
+        Args:
+            presigned_urls: {relative_path: presigned_url} mapping
+        """
+        self.presigned_urls = presigned_urls
+
+    def download_directory(self, local_dir: str):
+        """Download all files using presigned URLs"""
+        for relative_path, url in self.presigned_urls.items():
+            local_path = Path(local_dir) / relative_path
+            local_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Simple HTTP GET - no credentials needed!
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+
+            with open(local_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    f.write(chunk)
+```
+
+**작업 항목**:
+- [ ] `StorageClient.__init__()` 변경 - presigned_urls 딕셔너리 받기
+- [ ] `download_directory()` 로직 변경
+  - boto3 list_objects_v2 제거
+  - requests.get() 사용
+  - 에러 처리 (HTTP 403/404 → 명확한 에러 메시지)
+- [ ] `main()` 함수에서 환경변수 파싱
+  - `PRESIGNED_URLS_JSON` 읽어서 JSON 파싱
+  - StorageClient 초기화
+- [ ] boto3 의존성 제거 검토 (다른 곳에서 사용 여부 확인)
+
+**완료 기준**:
+- TrainerSDK가 credentials 없이 HTTP GET만으로 dataset 다운로드
+- boto3 import 제거 (또는 checkpoint upload용으로만 유지)
+- 에러 처리 테스트 (URL 만료, 404 등)
+
+**예상 시간**: 0.5일
+
+---
+
+#### 12.8.3 보안 테스트 및 검증 ⬜
+
+**테스트 시나리오**:
+
+1. **정상 동작 검증**:
+   - [ ] Training job 생성 → presigned URLs 생성 확인
+   - [ ] Trainer subprocess 시작 → HTTP GET으로 dataset 다운로드 성공
+   - [ ] Training 정상 실행 (images/labels 모두 정상 로드)
+
+2. **보안 검증**:
+   - [ ] Trainer 환경변수에 S3 credentials 없음 확인
+   - [ ] Trainer가 다른 dataset에 접근 시도 → 403 Forbidden
+   - [ ] URL 만료 후 접근 시도 → 403 Forbidden (1시간 후 테스트)
+
+3. **에러 처리**:
+   - [ ] presigned URL 생성 실패 시 training job 실패 처리
+   - [ ] HTTP download 실패 시 명확한 에러 메시지
+   - [ ] Trainer가 URL 파싱 실패 시 적절한 fallback 또는 에러
+
+**문서 업데이트**:
+- [ ] `docs/architecture/ARCHITECTURE.md`에 보안 개선 내용 추가
+- [ ] `platform/trainers/ultralytics/EXPORT_GUIDE.md` (또는 새 보안 가이드) 작성
+- [ ] Backend API 문서에 presigned URL 메커니즘 설명 추가
+
+**완료 기준**:
+- 모든 보안 테스트 통과
+- Trainer가 자신에게 할당된 dataset만 접근 가능
+- credentials 노출 0건
+
+**예상 시간**: 0.5일
+
+---
+
+#### 12.8.4 Checkpoint Upload 보안 검토 ⬜
+
+**현재 상황**:
+Trainer는 dataset **download**만 필요한 것이 아니라, checkpoint **upload**도 필요합니다. 현재는 boto3로 직접 업로드하고 있습니다.
+
+**문제**:
+- Checkpoint upload에는 **write 권한**이 필요
+- Presigned URL은 GET만 지원 (read-only)
+- **Presigned PUT URL**을 사용하여 upload 가능
+
+**설계 옵션**:
+
+**Option 1: Presigned PUT URLs** (추천):
+```python
+# Backend: prepare_dataset activity
+checkpoint_put_urls = {}
+for epoch in range(max_epochs):
+    key = f"checkpoints/{job_id}/epoch_{epoch}.pt"
+    put_url = storage.generate_presigned_url(
+        'put_object',
+        Params={'Bucket': '...', 'Key': key},
+        ExpiresIn=7200  # 2 hours
+    )
+    checkpoint_put_urls[f"epoch_{epoch}"] = put_url
+
+# TrainerSDK: save_checkpoint()
+requests.put(put_urls[f"epoch_{epoch}"], data=checkpoint_bytes)
+```
+
+**Option 2: Backend Proxy Upload API**:
+```python
+# TrainerSDK sends checkpoint to Backend via HTTP POST
+response = requests.post(
+    f"{BACKEND_URL}/internal/training/{job_id}/checkpoint",
+    files={'file': checkpoint_file}
+)
+```
+
+**작업 항목**:
+- [ ] Checkpoint upload 방식 결정 (Presigned PUT vs Backend Proxy)
+- [ ] 선택한 방식 구현
+- [ ] TrainerSDK `upload_checkpoint()` 수정
+- [ ] 보안 테스트 (unauthorized upload 시도)
+
+**완료 기준**:
+- Checkpoint upload에 credentials 노출 없음
+- Trainer가 다른 job의 checkpoint 위치에 write 불가
+
+**예상 시간**: 0.5일
+
+---
+
+**Phase 12.8 총 예상 시간**: 2일
+
+**효과**:
+- ✅ S3 credentials 노출 완전 제거
+- ✅ Trainer Marketplace 구현 기반 마련 (사용자 제출 코드 안전 실행)
+- ✅ 최소 권한 원칙(Least Privilege) 준수
+- ✅ K8s Pod security 강화
+- ✅ 데이터 유출/변조 위험 차단
 
 ---
 

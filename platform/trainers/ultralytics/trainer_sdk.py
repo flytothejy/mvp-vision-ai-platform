@@ -1224,34 +1224,23 @@ class TrainerSDK:
             image_id = img['id']
             file_name = img['file_name']
 
-            # Find actual file location (handle potential path mismatches)
-            # file_name from annotations.json might be 'images/xxx.png'
-            # but actual file could be at 'images/images/xxx.png' due to dataset upload structure
+            # Verify file exists at expected location
+            # file_name comes from annotation and must match downloaded file location
+            # storage_info.image_root + file_name was used to download the file
+            image_file = dataset_dir / file_name
+            if not image_file.exists():
+                raise FileNotFoundError(
+                    f"Image file not found: {file_name}\n"
+                    f"Expected at: {image_file}\n"
+                    f"This indicates a mismatch between annotation metadata and downloaded files.\n"
+                    f"Please verify:\n"
+                    f"1. Annotation file has correct storage_info.image_root\n"
+                    f"2. Dataset download used storage_info correctly\n"
+                    f"3. Contact Labeler team if issue persists"
+                )
 
-            # Try to find the actual file
-            possible_paths = [
-                dataset_dir / file_name,  # As specified in annotations
-                dataset_dir / "images" / file_name,  # With additional images/ prefix
-            ]
-
-            # Also try with 'images/' stripped from file_name
-            if file_name.startswith('images/'):
-                stripped = file_name[len('images/'):]
-                possible_paths.append(dataset_dir / "images" / stripped)
-
-            actual_file = None
-            for possible_path in possible_paths:
-                if possible_path.exists():
-                    actual_file = possible_path
-                    break
-
-            if actual_file:
-                # Calculate relative path from dataset_dir
-                image_path = str(actual_file.relative_to(dataset_dir)).replace('\\', '/')
-            else:
-                # Fallback to original file_name (might fail, but helps with debugging)
-                image_path = file_name if file_name.startswith('images/') else f"images/{file_name}"
-                logger.warning(f"Image file not found: {file_name}, using path: {image_path}")
+            # Use file_name as-is (normalized to forward slashes for YOLO)
+            image_path = file_name.replace('\\', '/')
 
             split = splits.get(image_id, 'train')
             if split == 'train':
