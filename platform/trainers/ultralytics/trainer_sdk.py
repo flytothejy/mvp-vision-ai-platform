@@ -1112,8 +1112,17 @@ class TrainerSDK:
             logger.info(f"Converting COCO/DICE format: {len(images)} images, {len(annotations)} annotations")
 
         # Create category mapping (category_id -> index)
-        category_map = {cat['id']: idx for idx, cat in enumerate(categories)}
-        class_names = [cat['name'] for cat in categories]
+        # Filter out __background__ class (used for negative samples)
+        real_categories = [cat for cat in categories if cat.get('name') != '__background__']
+        category_map = {cat['id']: idx for idx, cat in enumerate(real_categories)}
+        class_names = [cat['name'] for cat in real_categories]
+
+        # Track __background__ category ID
+        background_cat_id = None
+        for cat in categories:
+            if cat.get('name') == '__background__':
+                background_cat_id = cat['id']
+                break
 
         # Create image to annotations mapping
         image_annotations = {}
@@ -1128,6 +1137,9 @@ class TrainerSDK:
         labels_dir.mkdir(exist_ok=True)
 
         # Convert annotations to YOLO format
+        negative_samples = 0
+        total_objects = 0
+
         for img in images:
             image_id = img['id']
             file_name = img['file_name']
@@ -1144,14 +1156,26 @@ class TrainerSDK:
             # Convert to YOLO format
             yolo_lines = []
             for ann in img_anns:
-                # Skip annotations without bbox
-                if 'bbox' not in ann:
-                    logger.warning(f"Annotation {ann.get('id', 'unknown')} for image {image_id} missing bbox, skipping")
+                # Check if this is a background annotation
+                ann_class_name = ann.get('class_name', '')
+                category_id = ann.get('category_id')
+
+                # Skip __background__ annotations (negative sample marker)
+                if ann_class_name == '__background__' or category_id == background_cat_id:
+                    # This is a negative sample - no objects in image
                     continue
 
-                category_id = ann.get('category_id')
+                # Skip annotations without bbox (except __background__)
+                if 'bbox' not in ann:
+                    logger.debug(f"Annotation {ann.get('id', 'unknown')} for image {image_id} missing bbox, treating as negative sample")
+                    continue
+
                 if category_id is None:
                     logger.warning(f"Annotation {ann.get('id', 'unknown')} for image {image_id} missing category_id, skipping")
+                    continue
+
+                # Skip if category not in mapping (e.g., __background__)
+                if category_id not in category_map:
                     continue
 
                 bbox = ann['bbox']  # [x, y, width, height] in COCO format
@@ -1163,12 +1187,17 @@ class TrainerSDK:
                 norm_w = w / width
                 norm_h = h / height
 
-                class_idx = category_map.get(category_id, 0)
+                class_idx = category_map[category_id]
                 yolo_lines.append(f"{class_idx} {x_center:.6f} {y_center:.6f} {norm_w:.6f} {norm_h:.6f}")
+                total_objects += 1
 
-            # Write label file
+            # Write label file (empty file = negative sample for YOLO)
             with open(label_file, 'w') as f:
                 f.write('\n'.join(yolo_lines))
+
+            # Track negative samples
+            if len(yolo_lines) == 0:
+                negative_samples += 1
 
         # Split dataset
         if split_config and 'splits' in split_config:
@@ -1227,7 +1256,13 @@ class TrainerSDK:
         # Clean cache files
         self.clean_dataset_cache(str(dataset_dir))
 
-        logger.info("DICE to YOLO conversion completed")
+        # Log conversion statistics
+        logger.info(
+            f"DICE to YOLO conversion completed: "
+            f"{len(images)} images, {total_objects} objects, "
+            f"{negative_samples} negative samples (no objects), "
+            f"{len(class_names)} classes"
+        )
         return str(dataset_dir)
 
     def create_data_yaml(
