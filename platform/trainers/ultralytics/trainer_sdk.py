@@ -933,7 +933,7 @@ class TrainerSDK:
             }
 
             try:
-                self._send_callback(f'/training/jobs/{self.job_id}/callback/log', callback_data)
+                self._send_callback(f'/training/jobs/{self.job_id}/callback/logs', callback_data)
                 sent_count += 1
             except Exception as e:
                 # Don't fail training if log fails
@@ -974,7 +974,7 @@ class TrainerSDK:
             callback_data['data'] = data
 
         try:
-            self._send_callback(f'/training/jobs/{self.job_id}/callback/log', callback_data)
+            self._send_callback(f'/training/jobs/{self.job_id}/callback/logs', callback_data)
         except Exception as e:
             # Don't fail training if log event fails
             logger.warning(f"Failed to send log event: {e}")
@@ -1077,14 +1077,39 @@ class TrainerSDK:
             data = json.load(f)
 
         images = data.get('images', [])
-        annotations = data.get('annotations', [])
-        categories = data.get('categories', [])
 
         if not images:
             logger.warning("No images in annotations.json")
             return str(dataset_dir)
 
-        logger.info(f"Converting DICE format: {len(images)} images, {len(annotations)} annotations")
+        # Support both COCO/DICE format and our custom nested format
+        # COCO/DICE: {"categories": [...], "annotations": [...], "images": [...]}
+        # Custom: {"classes": [...], "images": [{"annotations": [...]}]}
+
+        # Check if using custom nested format (annotations inside each image)
+        if images and 'annotations' in images[0]:
+            # Custom nested format - extract classes and flatten annotations
+            categories = data.get('classes', [])
+
+            # Flatten nested annotations
+            annotations = []
+            for img in images:
+                img_annotations = img.get('annotations', [])
+                for ann in img_annotations:
+                    # Ensure annotation has image_id
+                    if 'image_id' not in ann:
+                        ann['image_id'] = img['id']
+                    # Map class_id to category_id if needed
+                    if 'class_id' in ann and 'category_id' not in ann:
+                        ann['category_id'] = ann['class_id']
+                    annotations.append(ann)
+
+            logger.info(f"Converting custom nested format: {len(images)} images, {len(annotations)} annotations")
+        else:
+            # Standard COCO/DICE format
+            annotations = data.get('annotations', [])
+            categories = data.get('categories', [])
+            logger.info(f"Converting COCO/DICE format: {len(images)} images, {len(annotations)} annotations")
 
         # Create category mapping (category_id -> index)
         category_map = {cat['id']: idx for idx, cat in enumerate(categories)}
@@ -1119,7 +1144,16 @@ class TrainerSDK:
             # Convert to YOLO format
             yolo_lines = []
             for ann in img_anns:
-                category_id = ann['category_id']
+                # Skip annotations without bbox
+                if 'bbox' not in ann:
+                    logger.warning(f"Annotation {ann.get('id', 'unknown')} for image {image_id} missing bbox, skipping")
+                    continue
+
+                category_id = ann.get('category_id')
+                if category_id is None:
+                    logger.warning(f"Annotation {ann.get('id', 'unknown')} for image {image_id} missing category_id, skipping")
+                    continue
+
                 bbox = ann['bbox']  # [x, y, width, height] in COCO format
 
                 # Convert to YOLO format (normalized center x, y, width, height)
