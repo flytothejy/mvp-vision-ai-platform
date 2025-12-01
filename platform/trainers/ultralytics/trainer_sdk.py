@@ -1224,11 +1224,34 @@ class TrainerSDK:
             image_id = img['id']
             file_name = img['file_name']
 
-            # Handle both 'images/xxx.jpg' and 'xxx.jpg' formats
-            if not file_name.startswith('images/'):
-                image_path = f"images/{file_name}"
+            # Find actual file location (handle potential path mismatches)
+            # file_name from annotations.json might be 'images/xxx.png'
+            # but actual file could be at 'images/images/xxx.png' due to dataset upload structure
+
+            # Try to find the actual file
+            possible_paths = [
+                dataset_dir / file_name,  # As specified in annotations
+                dataset_dir / "images" / file_name,  # With additional images/ prefix
+            ]
+
+            # Also try with 'images/' stripped from file_name
+            if file_name.startswith('images/'):
+                stripped = file_name[len('images/'):]
+                possible_paths.append(dataset_dir / "images" / stripped)
+
+            actual_file = None
+            for possible_path in possible_paths:
+                if possible_path.exists():
+                    actual_file = possible_path
+                    break
+
+            if actual_file:
+                # Calculate relative path from dataset_dir
+                image_path = str(actual_file.relative_to(dataset_dir)).replace('\\', '/')
             else:
-                image_path = file_name
+                # Fallback to original file_name (might fail, but helps with debugging)
+                image_path = file_name if file_name.startswith('images/') else f"images/{file_name}"
+                logger.warning(f"Image file not found: {file_name}, using path: {image_path}")
 
             split = splits.get(image_id, 'train')
             if split == 'train':
