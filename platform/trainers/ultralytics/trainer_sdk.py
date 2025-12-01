@@ -1154,8 +1154,15 @@ class TrainerSDK:
             image_annotations[image_id].append(ann)
 
         # Create labels directory
-        labels_dir = dataset_dir / "labels"
-        labels_dir.mkdir(exist_ok=True)
+        # YOLO expects labels by replacing 'images' with 'labels' in the image path
+        # Image path: images/images/wood/scratch/000.png
+        # Label path: images/labels/wood/scratch/000.txt
+        # So we create labels under local_image_root (e.g., "images/") not at dataset root
+        if local_image_root:
+            labels_base_dir = dataset_dir / local_image_root.rstrip('/') / "labels"
+        else:
+            labels_base_dir = dataset_dir / "labels"
+        labels_base_dir.mkdir(parents=True, exist_ok=True)
 
         # Convert annotations to YOLO format
         negative_samples = 0
@@ -1167,11 +1174,23 @@ class TrainerSDK:
             width = img['width']
             height = img['height']
 
-            # Get image stem for label file, preserving directory structure
+            # Get image stem for label file
+            # file_name is relative to storage bucket root (e.g., "images/wood/scratch/000.png")
+            # We need to strip local_image_root prefix to get path within images directory
             img_path = Path(file_name)
-            label_subdir = labels_dir / img_path.parent
+
+            # Strip local_image_root from file_name if present
+            if local_image_root and file_name.startswith(local_image_root):
+                # Remove local_image_root prefix
+                relative_path = file_name[len(local_image_root):]
+                img_path_rel = Path(relative_path)
+            else:
+                img_path_rel = img_path
+
+            # Create label file under labels directory
+            label_subdir = labels_base_dir / img_path_rel.parent
             label_subdir.mkdir(parents=True, exist_ok=True)
-            label_file = label_subdir / f"{img_path.stem}.txt"
+            label_file = label_subdir / f"{img_path_rel.stem}.txt"
 
             # Get annotations for this image
             img_anns = image_annotations.get(image_id, [])
@@ -1271,13 +1290,11 @@ class TrainerSDK:
                     f"Please verify annotation format with Labeler team."
                 )
 
-            # Use relative path from dataset_dir for YOLO
-            # YOLO expects paths relative to data.yaml's 'path' parameter
-            # Labels will be found automatically by replacing 'images' with 'labels'
-            if local_image_root:
-                image_path = str(Path(local_image_root) / file_name).replace('\\', '/')
-            else:
-                image_path = file_name.replace('\\', '/')
+            # Use ABSOLUTE path for YOLO
+            # YOLO has issues with relative paths when running from different working directories
+            # Using absolute paths ensures images are found regardless of where YOLO is executed from
+            # Labels will still be found automatically by replacing 'images' with 'labels' in the path
+            image_path = str(image_file.resolve()).replace('\\', '/')
 
             split = splits.get(image_id, 'train')
             if split == 'train':
