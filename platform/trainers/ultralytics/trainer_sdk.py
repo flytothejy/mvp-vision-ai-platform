@@ -1076,6 +1076,26 @@ class TrainerSDK:
         with open(annotations_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
+        # Extract storage_info to calculate local image root
+        storage_info = data.get('storage_info', {})
+        image_root_s3 = storage_info.get('image_root', '')
+
+        # Calculate local image root by extracting the path after dataset prefix
+        # Example: "datasets/ds_abc123/images/" -> "images/"
+        # This handles arbitrary nesting: "datasets/ds_abc123/images/images/..." -> "images/images/..."
+        local_image_root = ''
+        if image_root_s3:
+            # Extract dataset_id from dataset_dir path
+            # dataset_dir = /tmp/training/83/dataset, we need ds_c75023ca76d7448b
+            # OR we can extract from storage_info directly
+            # storage_info['image_root'] = "datasets/{dataset_id}/..."
+            parts = image_root_s3.split('/')
+            if len(parts) >= 3 and parts[0] == 'datasets':
+                # Extract everything after "datasets/{dataset_id}/"
+                dataset_id_from_root = parts[1]
+                local_image_root = '/'.join(parts[2:])  # Everything after "datasets/{dataset_id}/"
+                logger.info(f"Extracted local image root: '{local_image_root}' from storage_info")
+
         images = data.get('images', [])
 
         if not images:
@@ -1224,23 +1244,36 @@ class TrainerSDK:
             image_id = img['id']
             file_name = img['file_name']
 
-            # Verify file exists at expected location
-            # file_name comes from annotation and must match downloaded file location
-            # storage_info.image_root + file_name was used to download the file
-            image_file = dataset_dir / file_name
+            # Calculate actual file location using local_image_root
+            # file_name is relative to storage_info['image_root']
+            # Example:
+            #   storage_info['image_root'] = "datasets/ds_abc/images/"
+            #   file_name = "images/wood/scratch/000.png"
+            #   local_image_root = "images/"
+            #   actual file = dataset_dir / local_image_root / file_name
+            #               = /tmp/training/83/dataset/images/images/wood/scratch/000.png
+            if local_image_root:
+                image_file = dataset_dir / local_image_root / file_name
+            else:
+                # Fallback: no storage_info, assume file_name is relative to dataset_dir
+                image_file = dataset_dir / file_name
+
             if not image_file.exists():
                 raise FileNotFoundError(
                     f"Image file not found: {file_name}\n"
                     f"Expected at: {image_file}\n"
+                    f"storage_info.image_root: {image_root_s3}\n"
+                    f"local_image_root: {local_image_root}\n"
                     f"This indicates a mismatch between annotation metadata and downloaded files.\n"
-                    f"Please verify:\n"
-                    f"1. Annotation file has correct storage_info.image_root\n"
-                    f"2. Dataset download used storage_info correctly\n"
-                    f"3. Contact Labeler team if issue persists"
+                    f"Please verify annotation format with Labeler team."
                 )
 
-            # Use file_name as-is (normalized to forward slashes for YOLO)
-            image_path = file_name.replace('\\', '/')
+            # Use relative path from dataset_dir for YOLO
+            # YOLO needs the path relative to dataset_dir
+            if local_image_root:
+                image_path = str(Path(local_image_root) / file_name).replace('\\', '/')
+            else:
+                image_path = file_name.replace('\\', '/')
 
             split = splits.get(image_id, 'train')
             if split == 'train':
