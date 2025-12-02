@@ -571,24 +571,35 @@ async def start_training_job(
     # Phase 12: Start training (Temporal Workflow or Direct Subprocess)
     try:
         if settings.TRAINING_MODE == "subprocess":
-            # Direct subprocess execution (for testing/development)
             logger.info(f"[JOB {job_id}] Starting training in direct subprocess mode")
 
-            # Update job status to running
+            # Phase 12.2: Create ClearML Task
+            clearml_task_id = None
+            try:
+                from app.services.clearml_service import ClearMLService
+                clearml_service = ClearMLService(db)
+                clearml_task_id = clearml_service.create_task(
+                    job_id=job_id,
+                    project_name=f"Project {job.project_id}",
+                    task_name=f"Training Job {job_id}",
+                    task_type="training"
+                )
+                logger.info(f"[JOB {job_id}] ClearML task created: {clearml_task_id}")
+            except Exception as e:
+                logger.warning(f"[JOB {job_id}] Failed to create ClearML task: {str(e)}")
+
             job.status = "running"
             job.started_at = datetime.utcnow()
+            if clearml_task_id:
+                job.clearml_task_id = clearml_task_id
             db.commit()
             db.refresh(job)
 
-            # Execute training directly via workflow activity
             from app.workflows.training_workflow import execute_training
             import asyncio
+            asyncio.create_task(execute_training(job_id, clearml_task_id=clearml_task_id))
 
-            # Run in background task to avoid blocking API response
-            # clearml_task_id is None for subprocess mode (ClearML integration is handled by Temporal workflow)
-            asyncio.create_task(execute_training(job_id, clearml_task_id=None))
-
-            logger.info(f"[JOB {job_id}] Training started in subprocess mode")
+            logger.info(f"[JOB {job_id}] Training started in subprocess mode (ClearML: {clearml_task_id})")
 
         else:
             # Temporal Workflow (default for production)

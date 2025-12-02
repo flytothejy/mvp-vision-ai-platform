@@ -1,0 +1,109 @@
+{
+  "name": "YOLO Detection Training - MVTec-AD Dataset",
+  "description": "YOLO11n training on MVTec-AD bottle dataset (Phase 12.9 Caching Validation)",
+  "dataset": {
+    "id": "ds_c75023ca76d7448b",
+    "name": "MVTec-AD",
+    "snapshot_id": "snap_6ccfad047178",
+    "expected_images": 156
+  },
+  "steps": [
+    {
+      "step": 1,
+      "name": "Login",
+      "method": "POST",
+      "url": "http://localhost:8001/api/v1/auth/login",
+      "form_data": true,
+      "data": {
+        "username": "admin@example.com",
+        "password": "admin123"
+      },
+      "expected_status": 200,
+      "extract": {
+        "access_token": "access_token"
+      }
+    },
+    {
+      "step": 2,
+      "name": "Create Training Job",
+      "method": "POST",
+      "url": "http://localhost:8001/api/v1/training/jobs",
+      "headers": {
+        "Authorization": "Bearer {access_token}"
+      },
+      "data": {
+        "config": {
+          "framework": "ultralytics",
+          "model_name": "yolo11n",
+          "task_type": "detection",
+          "dataset_id": "ds_c75023ca76d7448b",
+          "epochs": 2,
+          "batch_size": 2,
+          "learning_rate": 0.001,
+          "image_size": 640,
+          "optimizer": "Adam",
+          "weight_decay": 0.0005
+        },
+        "project_id": 1
+      },
+      "expected_status": 200,
+      "extract": {
+        "job_id": "id",
+        "snapshot_id": "dataset_snapshot_id"
+      }
+    },
+    {
+      "step": 3,
+      "name": "Start Training",
+      "method": "POST",
+      "url": "http://localhost:8001/api/v1/training/jobs/{job_id}/start",
+      "headers": {
+        "Authorization": "Bearer {access_token}"
+      },
+      "expected_status": 200
+    },
+    {
+      "step": 4,
+      "name": "Poll Training Status",
+      "method": "GET",
+      "url": "http://localhost:8001/api/v1/training/jobs/{job_id}",
+      "headers": {
+        "Authorization": "Bearer {access_token}"
+      },
+      "poll": {
+        "interval": 5,
+        "timeout": 300,
+        "until_status": ["completed", "failed"]
+      },
+      "expected_final_status": "completed"
+    }
+  ],
+  "validation": {
+    "subprocess_logs": {
+      "file": "/tmp/training_subprocess.log",
+      "required_patterns": [
+        "Cache (HIT|MISS): snap_[a-f0-9]+_[a-f0-9]{8}",
+        "Selective download: \\d+ images",
+        "SNAPSHOT_ID: snap_[a-f0-9]+",
+        "DATASET_VERSION_HASH: [a-f0-9]+",
+        "Downloaded dataset to",
+        "Training started",
+        "Epoch \\d+/\\d+"
+      ]
+    },
+    "cache_directory": {
+      "path": "/tmp/datasets",
+      "expected_files": [
+        "{snapshot_id}_{hash}/.metadata.json",
+        "{snapshot_id}_{hash}/data.yaml",
+        "{snapshot_id}_{hash}/train/images",
+        "{snapshot_id}_{hash}/train/labels"
+      ]
+    },
+    "training_results": {
+      "check_metrics": true,
+      "check_checkpoint": true,
+      "min_epochs_completed": 2
+    }
+  }
+}
