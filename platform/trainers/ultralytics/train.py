@@ -165,11 +165,31 @@ def train_model(
         # Extract dataset ID from S3 URI
         dataset_id = dataset_s3_uri.rstrip('/').split('/')[-1]
 
-        # Download dataset
-        dataset_dir = Path(f"/tmp/training/{job_id}/dataset")
-        logger.info(f"Downloading dataset from {dataset_s3_uri}")
-        sdk.download_dataset(dataset_id, str(dataset_dir))
-        logger.info(f"Dataset downloaded to {dataset_dir}")
+        # Phase 12.9: Check for caching parameters
+        snapshot_id = os.getenv('SNAPSHOT_ID')
+        dataset_version_hash = os.getenv('DATASET_VERSION_HASH')
+
+        # Download dataset (with caching if parameters provided)
+        job_working_dir = Path(f"/tmp/training/{job_id}")
+
+        if snapshot_id and dataset_version_hash:
+            # Phase 12.9: Download with caching + selective download
+            logger.info(f"[Phase 12.9] Downloading dataset with caching")
+            logger.info(f"  SNAPSHOT_ID: {snapshot_id}")
+            logger.info(f"  DATASET_VERSION_HASH: {dataset_version_hash}")
+            dataset_dir = Path(sdk.download_dataset_with_cache(
+                snapshot_id=snapshot_id,
+                dataset_id=dataset_id,
+                dataset_version_hash=dataset_version_hash,
+                dest_dir=str(job_working_dir)
+            ))
+            logger.info(f"Dataset ready at {dataset_dir}")
+        else:
+            # Legacy: Download without caching
+            dataset_dir = Path(f"/tmp/training/{job_id}/dataset")
+            logger.info(f"Downloading dataset from {dataset_s3_uri}")
+            sdk.download_dataset(dataset_id, str(dataset_dir))
+            logger.info(f"Dataset downloaded to {dataset_dir}")
 
         # Convert DICEFormat to YOLO if needed
         split_config = config.get('split_config')

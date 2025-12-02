@@ -568,46 +568,68 @@ async def start_training_job(
                 detail=f"Failed to create dataset snapshot: {str(e)}"
             )
 
-    # Phase 12: Start training via Temporal Workflow
+    # Phase 12: Start training (Temporal Workflow or Direct Subprocess)
     try:
-        from app.core.temporal_client import get_temporal_client
-        from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
+        if settings.TRAINING_MODE == "subprocess":
+            # Direct subprocess execution (for testing/development)
+            logger.info(f"[JOB {job_id}] Starting training in direct subprocess mode")
 
-        # Get Temporal client
-        client = await get_temporal_client()
-        logger.info(f"[JOB {job_id}] Temporal client ready")
+            # Update job status to running
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            db.commit()
+            db.refresh(job)
 
-        # Generate unique workflow ID (with timestamp to allow retries)
-        timestamp = int(datetime.utcnow().timestamp())
-        workflow_id = f"training-job-{job_id}-{timestamp}"
+            # Execute training directly via workflow activity
+            from app.workflows.training_workflow import execute_training
+            import asyncio
 
-        # Start TrainingWorkflow
-        workflow_handle = await client.start_workflow(
-            TrainingWorkflow.run,
-            TrainingWorkflowInput(job_id=job_id),
-            id=workflow_id,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-        )
+            # Run in background task to avoid blocking API response
+            # clearml_task_id is None for subprocess mode (ClearML integration is handled by Temporal workflow)
+            asyncio.create_task(execute_training(job_id, clearml_task_id=None))
 
-        logger.info(f"[JOB {job_id}] TrainingWorkflow started: {workflow_id}")
+            logger.info(f"[JOB {job_id}] Training started in subprocess mode")
 
-        # Update job status
-        job.status = "running"
-        job.started_at = datetime.utcnow()
-        job.workflow_id = workflow_id
-        db.commit()
-        db.refresh(job)
+        else:
+            # Temporal Workflow (default for production)
+            from app.core.temporal_client import get_temporal_client
+            from app.workflows.training_workflow import TrainingWorkflow, TrainingWorkflowInput
 
-        logger.info(
-            f"[JOB {job_id}] Training orchestration started "
-            f"(workflow_id: {workflow_id}, mode: {settings.TRAINING_MODE})"
-        )
+            # Get Temporal client
+            client = await get_temporal_client()
+            logger.info(f"[JOB {job_id}] Temporal client ready")
+
+            # Generate unique workflow ID (with timestamp to allow retries)
+            timestamp = int(datetime.utcnow().timestamp())
+            workflow_id = f"training-job-{job_id}-{timestamp}"
+
+            # Start TrainingWorkflow
+            workflow_handle = await client.start_workflow(
+                TrainingWorkflow.run,
+                TrainingWorkflowInput(job_id=job_id),
+                id=workflow_id,
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+            logger.info(f"[JOB {job_id}] TrainingWorkflow started: {workflow_id}")
+
+            # Update job status
+            job.status = "running"
+            job.started_at = datetime.utcnow()
+            job.workflow_id = workflow_id
+            db.commit()
+            db.refresh(job)
+
+            logger.info(
+                f"[JOB {job_id}] Training orchestration started "
+                f"(workflow_id: {workflow_id}, mode: {settings.TRAINING_MODE})"
+            )
 
     except Exception as e:
-        logger.error(f"[JOB {job_id}] Failed to start training workflow: {e}")
+        logger.error(f"[JOB {job_id}] Failed to start training: {e}")
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to start training workflow: {str(e)}"
+            detail=f"Failed to start training: {str(e)}"
         )
 
     return job

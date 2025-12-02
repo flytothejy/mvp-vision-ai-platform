@@ -957,7 +957,7 @@ class TrainerSDK:
             4. Cache MISS: Download, verify, save metadata, enforce size limit
         """
         # 1. Build cache key
-        cache_key = f"{snapshot_id}_{dataset_version_hash[:8]}"
+        cache_key = f"{dataset_version_hash[:16]}"  # Use hash only for cache hit across snapshots
         cache_dir = self.SHARED_DATASET_CACHE / cache_key
 
         # 2. Check cache
@@ -1055,7 +1055,7 @@ class TrainerSDK:
 
     def _link_to_cache(self, cache_dir: Path, dest_dir: str) -> str:
         """
-        Create symlink from job directory to cache.
+        Create symlink from job directory to cache (with Windows fallback).
 
         /tmp/training/92/dataset -> /tmp/datasets/snap_2b2fca921e88_1bb25f37
 
@@ -1064,7 +1064,7 @@ class TrainerSDK:
             dest_dir: Job working directory
 
         Returns:
-            Symlink path
+            Symlink path (or copied directory path on Windows)
         """
         job_dataset_dir = Path(dest_dir) / "dataset"
 
@@ -1075,284 +1075,17 @@ class TrainerSDK:
             else:
                 shutil.rmtree(job_dataset_dir)
 
-        # Create symlink
-        job_dataset_dir.symlink_to(cache_dir, target_is_directory=True)
-
-        logger.info(f"📎 Linked: {job_dataset_dir} -> {cache_dir}")
-
-        return str(job_dataset_dir)
-
-    def _update_cache_metadata(self, cache_key: str, metadata: dict):
-        """
-        Update cache metadata JSON file.
-
-        Args:
-            cache_key: Cache key (snap_abc123_1bb25f37)
-            metadata: Metadata dictionary
-        """
-        # Ensure cache directory exists
-        self.SHARED_DATASET_CACHE.mkdir(parents=True, exist_ok=True)
-
-        # Load existing metadata
-        if self.CACHE_METADATA_FILE.exists():
-            with open(self.CACHE_METADATA_FILE) as f:
-                all_metadata = json.load(f)
-        else:
-            all_metadata = {}
-
-        # Update metadata for this cache
-        all_metadata[cache_key] = metadata
-
-        # Save metadata
-        with open(self.CACHE_METADATA_FILE, 'w') as f:
-            json.dump(all_metadata, f, indent=2)
-
-    def _update_last_accessed(self, cache_key: str):
-        """
-        Update last_accessed timestamp for cache entry.
-
-        Args:
-            cache_key: Cache key
-        """
-        if not self.CACHE_METADATA_FILE.exists():
-            return
-
-        with open(self.CACHE_METADATA_FILE) as f:
-            all_metadata = json.load(f)
-
-        if cache_key in all_metadata:
-            all_metadata[cache_key]['last_accessed'] = datetime.now(timezone.utc).isoformat()
-
-            with open(self.CACHE_METADATA_FILE, 'w') as f:
-                json.dump(all_metadata, f, indent=2)
-
-    def _calculate_dir_size(self, directory: Path) -> int:
-        """
-        Calculate total size of directory in bytes.
-
-        Args:
-            directory: Directory path
-
-        Returns:
-            Total size in bytes
-        """
-        total_size = 0
-        for file in directory.rglob('*'):
-            if file.is_file():
-                total_size += file.stat().st_size
-        return total_size
-
-    def _enforce_cache_size_limit(self):
-        """
-        Enforce cache size limit using LRU eviction.
-
-        Strategy:
-        1. Calculate total cache size
-        2. If > CACHE_MAX_SIZE_GB, evict least recently used
-        3. Keep evicting until under limit
-        """
-        if not self.CACHE_METADATA_FILE.exists():
-            return
-
-        with open(self.CACHE_METADATA_FILE) as f:
-            metadata = json.load(f)
-
-        # Calculate total size
-        total_size_gb = sum(
-            item['size_bytes'] for item in metadata.values()
-        ) / (1024 ** 3)
-
-        if total_size_gb <= self.CACHE_MAX_SIZE_GB:
-            return
-
-        logger.info(
-            f"Cache size ({total_size_gb:.2f} GB) exceeds limit "
-            f"({self.CACHE_MAX_SIZE_GB} GB), evicting LRU entries"
-        )
-
-        # Sort by last accessed (oldest first)
-        sorted_items = sorted(
-            metadata.items(),
-            key=lambda x: x[1]['last_accessed']
-        )
-
-        # Evict until under limit
-        for cache_key, item in sorted_items:
-            cache_dir = self.SHARED_DATASET_CACHE / cache_key
-
-            if cache_dir.exists():
-                logger.info(f"🗑️ Evicting cache: {cache_key}")
-                shutil.rmtree(cache_dir)
-
-            del metadata[cache_key]
-
-            # Recalculate total size
-            total_size_gb = sum(
-                item['size_bytes'] for item in metadata.values()
-            ) / (1024 ** 3)
-
-            if total_size_gb <= self.CACHE_MAX_SIZE_GB:
-                break
-
-        # Save updated metadata
-        with open(self.CACHE_METADATA_FILE, 'w') as f:
-            json.dump(metadata, f, indent=2)
-
-
-    # =========================================================================
-    # Dataset Caching Methods (Phase 12.9)
-    # =========================================================================
-
-    def download_dataset_with_cache(
-        self,
-        snapshot_id: str,
-        dataset_id: str,
-        dataset_version_hash: str,
-        dest_dir: str
-    ) -> str:
-        """
-        Download dataset with caching support (Phase 12.9).
-
-        Args:
-            snapshot_id: Snapshot ID (snap_abc123)
-            dataset_id: Original dataset ID (ds_c75023ca76d7448b)
-            dataset_version_hash: SHA256 hash from SnapshotService
-            dest_dir: Job working directory (/tmp/training/92)
-
-        Returns:
-            Local dataset directory path
-
-        Flow:
-            1. Build cache key: {snapshot_id}_{hash[:8]}
-            2. Check cache exists and verify integrity (hash match)
-            3. Cache HIT: Create symlink, return path
-            4. Cache MISS: Download, verify, save metadata, enforce size limit
-        """
-        # 1. Build cache key
-        cache_key = f"{snapshot_id}_{dataset_version_hash[:8]}"
-        cache_dir = self.SHARED_DATASET_CACHE / cache_key
-
-        # 2. Check cache
-        if cache_dir.exists():
-            if self._verify_cache_integrity(cache_dir, dataset_version_hash):
-                logger.info(f"✅ Cache HIT: {cache_key}")
-                self._update_last_accessed(cache_key)
-                return self._link_to_cache(cache_dir, dest_dir)
-            else:
-                logger.warning(f"⚠️ Cache corrupted: {cache_key}, re-downloading")
-                shutil.rmtree(cache_dir)
-
-        # 3. Cache MISS - Download dataset
-        logger.info(f"❌ Cache MISS: {cache_key}, downloading...")
-
-        # Create cache directory
-        cache_dir.mkdir(parents=True, exist_ok=True)
-
-        # Download dataset (use existing download_dataset method)
-        self.download_dataset(dataset_id=dataset_id, dest_dir=str(cache_dir))
-
-        # 4. Verify downloaded data
-        if not self._verify_cache_integrity(cache_dir, dataset_version_hash):
-            logger.error(f"Downloaded data hash mismatch for {cache_key}")
-            shutil.rmtree(cache_dir)
-            raise RuntimeError(f"Dataset hash verification failed for {cache_key}")
-
-        # 5. Update cache metadata
-        self._update_cache_metadata(cache_key, {
-            'snapshot_id': snapshot_id,
-            'dataset_id': dataset_id,
-            'dataset_version_hash': dataset_version_hash,
-            'created_at': datetime.now(timezone.utc).isoformat(),
-            'last_accessed': datetime.now(timezone.utc).isoformat(),
-            'size_bytes': self._calculate_dir_size(cache_dir)
-        })
-
-        # 6. Check cache size and evict if needed
-        self._enforce_cache_size_limit()
-
-        # 7. Link to job directory
-        return self._link_to_cache(cache_dir, dest_dir)
-
-    def _verify_cache_integrity(
-        self,
-        cache_dir: Path,
-        expected_hash: str
-    ) -> bool:
-        """
-        Verify cache integrity by recalculating hash.
-
-        Matches SnapshotService logic:
-        - Only hash metadata files (.json, .yaml, .txt)
-        - Skip images for performance
-
-        Args:
-            cache_dir: Cache directory path
-            expected_hash: Expected SHA256 hash
-
-        Returns:
-            True if hash matches, False otherwise
-        """
+        # Try symlink first (Linux/Mac/Windows with Developer Mode)
         try:
-            hasher = hashlib.sha256()
-
-            # Find all metadata files
-            metadata_files = sorted([
-                f for f in cache_dir.rglob('*')
-                if f.is_file() and f.suffix in ['.json', '.yaml', '.yml', '.txt']
-            ])
-
-            if not metadata_files:
-                logger.warning(f"No metadata files found in {cache_dir}")
-                return False
-
-            for file_path in metadata_files:
-                with open(file_path, 'rb') as f:
-                    hasher.update(f.read())
-
-            calculated_hash = hasher.hexdigest()
-
-            if calculated_hash != expected_hash:
-                logger.error(
-                    f"Cache integrity check failed:\n"
-                    f"  Expected: {expected_hash}\n"
-                    f"  Calculated: {calculated_hash}"
-                )
-                return False
-
-            return True
-
-        except Exception as e:
-            logger.error(f"Cache integrity check error: {e}")
-            return False
-
-    def _link_to_cache(self, cache_dir: Path, dest_dir: str) -> str:
-        """
-        Create symlink from job directory to cache.
-
-        /tmp/training/92/dataset -> /tmp/datasets/snap_2b2fca921e88_1bb25f37
-
-        Args:
-            cache_dir: Cache directory path
-            dest_dir: Job working directory
-
-        Returns:
-            Symlink path
-        """
-        job_dataset_dir = Path(dest_dir) / "dataset"
-
-        # Remove existing dataset if present
-        if job_dataset_dir.exists():
-            if job_dataset_dir.is_symlink():
-                job_dataset_dir.unlink()
-            else:
-                shutil.rmtree(job_dataset_dir)
-
-        # Create symlink
-        job_dataset_dir.symlink_to(cache_dir, target_is_directory=True)
-
-        logger.info(f"📎 Linked: {job_dataset_dir} -> {cache_dir}")
-
-        return str(job_dataset_dir)
+            job_dataset_dir.symlink_to(cache_dir, target_is_directory=True)
+            logger.info(f"📎 Linked (symlink): {job_dataset_dir} -> {cache_dir}")
+            return str(job_dataset_dir)
+        except (OSError, NotImplementedError) as e:
+            # Windows symlink permission error (1314) or not supported
+            logger.warning(f"Symlink failed ({e}), falling back to directory copy")
+            shutil.copytree(cache_dir, job_dataset_dir, symlinks=True)
+            logger.info(f"📋 Copied from cache: {cache_dir} -> {job_dataset_dir}")
+            return str(job_dataset_dir)
 
     def _update_cache_metadata(self, cache_key: str, metadata: dict):
         """
@@ -1471,6 +1204,7 @@ class TrainerSDK:
             json.dump(metadata, f, indent=2)
 
     def upload_file(
+
         self,
         local_path: str,
         s3_key: str,
