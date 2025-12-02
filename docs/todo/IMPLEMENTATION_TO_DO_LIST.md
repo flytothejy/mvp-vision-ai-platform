@@ -3,7 +3,7 @@
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
 **총 진행률**: 100% (265/265 tasks)
-**최종 업데이트**: 2025-12-02 (Phase 12.9 완료 - Dataset Optimization: Caching, Selective Download, Job Restart)
+**최종 업데이트**: 2025-12-02 (Phase 13 계획 작성 - Observability 확장성 구현 계획 완료)
 
 ---
 
@@ -24,6 +24,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 75% | Tier 1-2 완료, Phase 11.5 Dataset Integration 완료 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 | 12. Temporal Orchestration & Backend Modernization | 🔄 88% | Temporal, TrainingManager, ClearML 완전 전환, Dataset Optimization 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-88) |
+| 13. Observability 확장성 | ⬜ 0% | 다중 관측 도구 지원 계획 완료 (ClearML, MLflow, TensorBoard, DB) | [Phase 13 Details](#phase-13-observability-확장성-구현-0) |
 
 ---
 
@@ -2937,6 +2938,168 @@ After Phase 12.9:
 | 9 | 12.2.6 | MLflow Cleanup |
 | 10 | 12.3 | Storage Unification |
 | 11 | 12.4-12.5 | Callback Refactoring + Testing |
+
+---
+
+## Phase 13: Observability 확장성 구현 (⬜ 0%)
+
+**목표**: 단일 관측 도구(ClearML)에서 벗어나 다양한 관측/로깅 도구를 유연하게 선택할 수 있는 확장 가능한 아키텍처 구현
+
+**배경**: Phase 12.2에서 ClearML을 도입했으나, 이는 하드코딩된 구현으로 다른 도구(MLflow, TensorBoard, Custom DB)를 사용하려면 코드 수정이 필요함. Phase 13에서는 Adapter Pattern을 사용하여 사용자가 환경 변수로 원하는 관측 도구를 선택할 수 있도록 개선.
+
+**주요 기능**:
+1. **환경 변수 기반 도구 선택**: `OBSERVABILITY_BACKENDS=database,clearml` 형태로 다중 도구 동시 사용 가능
+2. **Adapter Pattern 적용**: 모든 관측 도구는 `ObservabilityAdapter` 인터페이스 구현
+3. **DB 기본 구현**: 외부 도구 없이도 자체 DB에 metrics 저장 및 조회 가능
+4. **WebSocket 실시간 업데이트**: Frontend에서 polling 대신 WebSocket으로 실시간 차트 업데이트
+5. **Graceful Degradation**: 일부 adapter 실패 시에도 training 계속 진행
+
+**참고 문서**: [PHASE_13_OBSERVABILITY_EXTENSIBILITY.md](reference/PHASE_13_OBSERVABILITY_EXTENSIBILITY.md)
+
+---
+
+### 13.1 Observability Adapter Pattern 구현 (⬜ 0%)
+
+**예상 소요 시간**: 1.5일
+
+**구현 위치**:
+- `platform/backend/app/adapters/observability/`
+  - `base.py` - ObservabilityAdapter 추상 클래스
+  - `database_adapter.py` - DatabaseAdapter (기본 구현)
+  - `clearml_adapter.py` - ClearMLAdapter (기존 ClearMLService 마이그레이션)
+  - `mlflow_adapter.py` - MLflowAdapter (선택적 구현)
+  - `tensorboard_adapter.py` - TensorBoardAdapter (선택적 구현)
+
+**구현 태스크**:
+- [ ] `ObservabilityAdapter` 추상 클래스 작성
+  - [ ] `initialize(config)` - Adapter 초기화
+  - [ ] `create_experiment(job_id, project_name, experiment_name)` - Experiment 생성, ID 반환
+  - [ ] `log_metrics(experiment_id, metrics, step)` - Metrics 기록
+  - [ ] `log_hyperparameters(experiment_id, params)` - Hyperparameters 기록
+  - [ ] `get_metrics(experiment_id, metric_names)` - Metrics 조회
+  - [ ] `finalize_experiment(experiment_id, status, final_metrics)` - Experiment 종료
+  - [ ] `get_experiment_url(experiment_id)` - Web UI URL 반환
+- [ ] `DatabaseAdapter` 구현
+  - [ ] `TrainingMetric` 테이블에 저장
+  - [ ] Experiment ID는 `job_id` 사용
+  - [ ] `get_metrics()` - DB 쿼리로 metrics 반환
+- [ ] `ClearMLAdapter` 구현
+  - [ ] 기존 `ClearMLService` 로직 마이그레이션
+  - [ ] ClearML Task 생성 및 연결
+  - [ ] Adapter 인터페이스 준수
+- [ ] (선택) `MLflowAdapter` 구현
+  - [ ] MLflow Tracking URI 설정
+  - [ ] MLflow Experiment/Run 생성
+  - [ ] Metrics/Params 로깅
+- [ ] (선택) `TensorBoardAdapter` 구현
+  - [ ] TensorBoard SummaryWriter 사용
+  - [ ] Log directory 관리
+  - [ ] Event file 생성
+
+---
+
+### 13.2 ObservabilityManager 및 설정 시스템 (⬜ 0%)
+
+**예상 소요 시간**: 1일
+
+**구현 위치**:
+- `platform/backend/app/services/observability_manager.py`
+- `platform/backend/app/core/config.py` (환경 변수 추가)
+- `platform/backend/app/services/training_callback_service.py` (리팩토링)
+
+**구현 태스크**:
+- [ ] `ObservabilityManager` 클래스 작성
+  - [ ] `add_adapter(name, adapter)` - Adapter 등록
+  - [ ] `create_experiment()` - 모든 adapter에 experiment 생성, experiment_ids 반환
+  - [ ] `log_metrics()` - 모든 adapter에 metrics 전송
+  - [ ] `log_hyperparameters()` - 모든 adapter에 hyperparameters 전송
+  - [ ] `get_metrics()` - Primary adapter에서 metrics 조회 (DB 우선)
+  - [ ] `finalize_experiment()` - 모든 adapter에 종료 알림
+  - [ ] Error handling: 개별 adapter 실패 시 logging만 하고 계속 진행
+- [ ] 환경 변수 추가 (`config.py`)
+  - [ ] `OBSERVABILITY_BACKENDS` - 사용할 backends 리스트 (기본: "database")
+  - [ ] `CLEARML_API_HOST`, `CLEARML_WEB_HOST` - ClearML 설정
+  - [ ] `MLFLOW_TRACKING_URI`, `MLFLOW_ENABLED` - MLflow 설정
+  - [ ] `TENSORBOARD_LOG_DIR`, `TENSORBOARD_ENABLED` - TensorBoard 설정
+- [ ] `TrainingCallbackService` 리팩토링
+  - [ ] `ClearMLService` 제거, `ObservabilityManager` 주입
+  - [ ] `handle_progress()` - `observability_manager.log_metrics()` 호출
+  - [ ] `handle_completion()` - `observability_manager.finalize_experiment()` 호출
+- [ ] `TrainingJob` 모델 업데이트
+  - [ ] `observability_backends` 컬럼 추가 (String, 기본값 "database")
+  - [ ] `observability_experiment_ids` 컬럼 추가 (JSON, 예: `{"database": "123", "clearml": "abc-def"}`)
+- [ ] Database migration script 작성
+
+---
+
+### 13.3 Frontend WebSocket 통합 (⬜ 0%)
+
+**예상 소요 시간**: 1일
+
+**구현 위치**:
+- `platform/frontend/hooks/useTrainingWebSocket.ts` (신규)
+- `platform/frontend/components/training/MetricsChart.tsx` (업데이트)
+- `platform/backend/app/services/training_callback_service.py` (WebSocket broadcast)
+
+**구현 태스크**:
+- [ ] `useTrainingWebSocket` Hook 작성
+  - [ ] WebSocket 연결 관리 (`ws://localhost:8001/ws/training/{job_id}`)
+  - [ ] 자동 재연결 로직
+  - [ ] Message 타입 파싱: `training_progress`, `training_complete`, `training_error`
+  - [ ] State 관리: `connected`, `metrics`, `logs`, `status`
+  - [ ] Cleanup on unmount
+- [ ] `MetricsChart` 컴포넌트 업데이트
+  - [ ] `useTrainingWebSocket(jobId)` 사용
+  - [ ] 실시간 metrics 데이터 차트에 반영
+  - [ ] Polling 코드 완전 제거
+  - [ ] 연결 상태 표시 (Connected/Disconnected)
+- [ ] Backend WebSocket broadcast 확인
+  - [ ] `TrainingCallbackService.handle_progress()` - `ws_manager.broadcast()` 호출 확인
+  - [ ] Message format: `{"type": "training_progress", "job_id": 123, "metrics": {...}, "step": 10}`
+- [ ] E2E 테스트 작성
+  - [ ] Training 시작 → WebSocket 연결 → Metrics 수신 → 차트 업데이트 확인
+
+---
+
+### 13.4 Testing 및 Documentation (⬜ 0%)
+
+**예상 소요 시간**: 0.5일
+
+**구현 태스크**:
+- [ ] Unit Tests
+  - [ ] `test_database_adapter.py` - DatabaseAdapter 단위 테스트
+  - [ ] `test_clearml_adapter.py` - ClearMLAdapter 단위 테스트
+  - [ ] `test_observability_manager.py` - ObservabilityManager 단위 테스트
+  - [ ] Error handling 시나리오 테스트 (adapter 실패, 네트워크 오류)
+- [ ] Integration Tests
+  - [ ] Training workflow + 다중 adapters 동시 사용 테스트
+  - [ ] Frontend WebSocket + Backend broadcast E2E 테스트
+  - [ ] Database-only 모드 테스트
+  - [ ] ClearML + Database 동시 사용 테스트
+- [ ] Documentation 업데이트
+  - [ ] `ARCHITECTURE.md` - Observability 섹션 업데이트
+  - [ ] `DEVELOPMENT.md` - 환경 변수 설정 가이드
+  - [ ] `API_SPECIFICATION.md` - WebSocket message format 문서화
+  - [ ] 사용자 가이드: "관측 도구 선택 방법" 작성
+
+---
+
+**Phase 13 총 예상 시간**: 4일
+
+**Success Criteria**:
+- [ ] 사용자가 `.env` 파일에서 `OBSERVABILITY_BACKENDS` 설정 가능
+- [ ] Database-only 모드로 training 가능 (외부 도구 없이)
+- [ ] ClearML + Database 동시 사용 가능
+- [ ] Frontend에서 WebSocket으로 실시간 metrics 업데이트 확인
+- [ ] 개별 adapter 실패 시에도 training 계속 진행 (Graceful Degradation)
+- [ ] 모든 Unit/Integration Tests 통과
+- [ ] Documentation 업데이트 완료
+
+**Expected Outcomes**:
+- 사용자는 자신의 선호도에 따라 관측 도구 선택 가능 (Vendor Lock-in 방지)
+- 외부 도구(ClearML/MLflow) 없이도 Platform 자체 DB만으로 완전한 training monitoring 가능
+- 실시간 WebSocket 업데이트로 사용자 경험 향상 (polling delay 제거)
+- 새로운 관측 도구 추가 시 Adapter 구현만으로 확장 가능 (OCP 준수)
 
 ---
 
