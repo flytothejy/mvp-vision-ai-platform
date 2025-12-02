@@ -154,6 +154,20 @@ class Settings(BaseSettings):
     CLEARML_API_SECRET_KEY: str = ""  # Empty for open-source server
     CLEARML_DEFAULT_PROJECT: str = "Platform Training"
 
+    # Observability Configuration (Phase 13: Multi-tool support)
+    # Comma-separated list of observability backends to enable
+    # Options: "database", "clearml", "mlflow", "tensorboard"
+    # Example: "database,clearml" to use both Database and ClearML
+    OBSERVABILITY_BACKENDS: str = "database"  # Default: database only
+
+    # MLflow Configuration (optional, Phase 13)
+    MLFLOW_TRACKING_URI: str = "http://localhost:5000"
+    MLFLOW_ENABLED: bool = False
+
+    # TensorBoard Configuration (optional, Phase 13)
+    TENSORBOARD_LOG_DIR: str = "./data/tensorboard"
+    TENSORBOARD_ENABLED: bool = False
+
     class Config:
         # Don't load .env file - use environment variables directly
         # Railway provides environment variables, not .env files

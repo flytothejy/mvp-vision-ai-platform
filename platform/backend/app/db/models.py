@@ -422,6 +422,13 @@ class TrainingJob(Base):
     # ClearML Task ID (Phase 12.2: Replaces MLflow)
     clearml_task_id = Column(String(200), nullable=True, index=True)
 
+    # Observability Configuration (Phase 13: Multi-tool support)
+    # Comma-separated list of enabled backends (e.g., "database,clearml")
+    observability_backends = Column(String(200), nullable=False, default="database")
+    # JSON mapping of backend name to experiment ID
+    # Example: {"database": "123", "clearml": "abc-def-ghi", "mlflow": "xyz"}
+    observability_experiment_ids = Column(JSON, nullable=True, default=dict)
+
     framework = Column(String(50), nullable=False, default="timm")
     model_name = Column(String(100), nullable=False)
     task_type = Column(String(50), nullable=False)
