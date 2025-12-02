@@ -237,6 +237,21 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
 
         logger.info(f"[execute_training] Loaded job {job_id}: {job.model_name} on {job.framework}")
 
+        # 1.5. Fetch dataset snapshot for caching (Phase 12.9)
+        snapshot_id = None
+        dataset_version_hash = None
+        if job.dataset_snapshot_id:
+            snapshot = db.query(models.DatasetSnapshot).filter(
+                models.DatasetSnapshot.id == job.dataset_snapshot_id
+            ).first()
+            if snapshot:
+                snapshot_id = snapshot.id
+                dataset_version_hash = snapshot.dataset_version_hash
+                logger.info(
+                    f"[execute_training] Using snapshot: {snapshot_id}, "
+                    f"hash: {dataset_version_hash[:8] if dataset_version_hash else 'None'}"
+                )
+
         # 2. Get TrainingManager instance (based on TRAINING_MODE)
         manager = get_training_manager()
         logger.info(f"[execute_training] Using TrainingManager: {type(manager).__name__}")
@@ -272,7 +287,7 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
         # Build callback URL (base URL only - TrainerSDK adds operation-specific paths)
         callback_url = f"http://localhost:{settings.BACKEND_PORT}/api/v1"
 
-        # 4. Start training (legacy signature - will be refactored in Phase 12.1.x)
+        # 4. Start training (Phase 12.9: Added snapshot_id and dataset_version_hash for caching)
         training_metadata = await manager.start_training(
             job_id=job_id,
             framework=job.framework,
@@ -280,6 +295,8 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
             dataset_s3_uri=dataset_s3_uri,
             callback_url=callback_url,
             config=training_config,
+            snapshot_id=snapshot_id,
+            dataset_version_hash=dataset_version_hash,
         )
         logger.info(f"[execute_training] Training started: {training_metadata}")
 

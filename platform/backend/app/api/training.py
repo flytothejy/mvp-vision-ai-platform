@@ -508,11 +508,27 @@ async def start_training_job(
     if not job:
         raise HTTPException(status_code=404, detail="Training job not found")
 
-    if job.status != "pending":
+    # Phase 12.9.3: Allow restart for completed/failed jobs
+    if job.status not in ["pending", "completed", "failed"]:
         raise HTTPException(
             status_code=400,
-            detail=f"Cannot start job with status '{job.status}'",
+            detail=f"Cannot start job with status '{job.status}'. Only pending, completed, or failed jobs can be started.",
         )
+
+    # If completed/failed, reset to pending for restart
+    if job.status in ["completed", "failed"]:
+        logger.info(f"[JOB {job_id}] Restarting {job.status} job, resetting to pending")
+
+        job.status = "pending"
+        job.started_at = None
+        job.completed_at = None
+        job.error_message = None
+
+        # TODO: Optional clear_history parameter to clear metrics/logs
+        # clear_history = request.query_params.get('clear_history', 'false').lower() == 'true'
+
+        db.commit()
+        db.refresh(job)
 
     # Phase 11.5.5: Resolve split configuration and create snapshot
     if job.dataset_id:

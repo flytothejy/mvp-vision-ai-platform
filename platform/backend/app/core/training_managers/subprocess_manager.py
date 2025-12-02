@@ -119,6 +119,8 @@ class SubprocessTrainingManager(TrainingManager):
         dataset_s3_uri: str,
         callback_url: str,
         config: Dict[str, Any],
+        snapshot_id: str = None,
+        dataset_version_hash: str = None,
     ) -> subprocess.Popen:
         """
         Start training subprocess.
@@ -174,6 +176,12 @@ class SubprocessTrainingManager(TrainingManager):
             env['FRAMEWORK'] = framework
             env['DATASET_ID'] = dataset_id
             env['DATASET_S3_URI'] = dataset_s3_uri
+
+            # Phase 12.9: Dataset caching parameters
+            if snapshot_id:
+                env['SNAPSHOT_ID'] = snapshot_id
+            if dataset_version_hash:
+                env['DATASET_VERSION_HASH'] = dataset_version_hash
 
             # Basic training parameters
             env['EPOCHS'] = str(config.get('epochs', 100))
