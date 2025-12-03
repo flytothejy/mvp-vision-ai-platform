@@ -3,7 +3,7 @@
 Vision AI Training Platform 구현 진행 상황 추적 문서.
 
 **총 진행률**: 100% (265/265 tasks)
-**최종 업데이트**: 2025-12-03 (Phase 13.1-13.3 구현 완료 - Adapter Pattern, ObservabilityManager, WebSocket 통합)
+**최종 업데이트**: 2025-12-03 (Phase 13.4 추가 - Database 기반 차트 구현 계획 수립)
 
 ---
 
@@ -24,7 +24,7 @@ Vision AI Training Platform 구현 진행 상황 추적 문서.
 | 10. Training SDK | ✅ 90% | 핵심 기능 완료, 환경변수 업데이트 완료 | [E2E Test Report](reference/TRAINING_SDK_E2E_TEST_REPORT.md) |
 | 11. Microservice Separation | 🔄 75% | Tier 1-2 완료, Phase 11.5 Dataset Integration 완료 | [PHASE_11_MICROSERVICE_SEPARATION.md](../planning/PHASE_11_MICROSERVICE_SEPARATION.md) |
 | 12. Temporal Orchestration & Backend Modernization | 🔄 88% | Temporal, TrainingManager, ClearML 완전 전환, Dataset Optimization 완료 | [Phase 12 Details](#phase-12-temporal-orchestration--backend-modernization-88) |
-| 13. Observability 확장성 | 🔄 65% | Adapter Pattern 완료, ObservabilityManager 완료, WebSocket 통합 완료 (Phase 0.9) | [Phase 13 Details](#phase-13-observability-확장성-구현-65) |
+| 13. Observability 확장성 | 🔄 60% | Adapter Pattern 완료, ObservabilityManager 완료, WebSocket 통합 완료, Database 차트 구현 대기 | [Phase 13 Details](#phase-13-observability-확장성-구현-60) |
 
 ---
 
@@ -2941,7 +2941,7 @@ After Phase 12.9:
 
 ---
 
-## Phase 13: Observability 확장성 구현 (🔄 65%)
+## Phase 13: Observability 확장성 구현 (🔄 60%)
 
 **목표**: 단일 관측 도구(ClearML)에서 벗어나 다양한 관측/로깅 도구를 유연하게 선택할 수 있는 확장 가능한 아키텍처 구현
 
@@ -3079,7 +3079,109 @@ After Phase 12.9:
 
 ---
 
-### 13.4 Testing 및 Documentation (⬜ 0%)
+### 13.4 Database 기반 차트 표시 구현 (⬜ 0%)
+
+**예상 소요 시간**: 1일
+
+**배경**: 현재 `MLflowMetricsCharts` 컴포넌트는 MLflow API에 의존하여 차트를 렌더링하고 있음. `OBSERVABILITY_BACKENDS=database` 모드에서는 MLflow를 사용하지 않으므로 차트가 표시되지 않음. Database Adapter를 사용하여 Platform DB에서 직접 metrics를 조회하고 차트를 렌더링하도록 변경 필요.
+
+**구현 위치**:
+- `platform/frontend/components/training/DatabaseMetricsCharts.tsx` (신규 생성 또는 MLflowMetricsCharts 리팩토링)
+- `platform/frontend/components/TrainingPanel.tsx` (차트 컴포넌트 교체)
+- `platform/backend/app/api/training.py` (기존 엔드포인트 확인)
+
+**구현 태스크**:
+- [ ] Backend API 엔드포인트 확인 및 개선
+  - [x] `GET /training/jobs/{job_id}/metrics` - 이미 존재, 응답 포맷 확인 필요
+  - [x] `GET /training/jobs/{job_id}/metrics/schema` - 이미 존재, metric schema 조회
+  - [ ] 응답 포맷이 차트 렌더링에 적합한지 검증
+  - [ ] 필요시 aggregation/filtering 파라미터 추가 (예: `metric_names`, `limit`)
+- [ ] Frontend 차트 컴포넌트 구현
+  - [ ] `DatabaseMetricsCharts.tsx` 생성 또는 `MLflowMetricsCharts.tsx` 리팩토링
+    - [ ] MLflow API 호출 제거
+    - [ ] Database API (`/training/jobs/{job_id}/metrics`) 호출로 변경
+    - [ ] 데이터 포맷 변환 (Database → Chart format)
+  - [ ] 차트 라이브러리 선택 (Recharts/Chart.js 등 기존 사용 중인 것 활용)
+  - [ ] Multiple metrics 동시 표시 (primary metric + selected metrics)
+  - [ ] Time-series 차트 렌더링 (epoch/step별 metrics)
+  - [ ] Empty state 처리 (metrics 없을 때)
+- [ ] TrainingPanel 통합
+  - [ ] `MLflowMetricsCharts` → `DatabaseMetricsCharts` 교체
+  - [ ] Props 인터페이스 조정 (jobId, selectedMetrics, refreshKey)
+  - [ ] WebSocket `refreshKey` 통합 (실시간 차트 업데이트)
+  - [ ] Loading/Error state 처리
+- [ ] 데이터 포맷 통일
+  - [ ] TrainingMetric 모델 확인 (epoch, step, loss, accuracy, extra_metrics)
+  - [ ] Chart 데이터 구조 정의
+    ```typescript
+    interface ChartDataPoint {
+      epoch: number;
+      step?: number;
+      [metricName: string]: number | undefined; // loss, accuracy, etc.
+    }
+    ```
+  - [ ] DatabaseMetricsTable과 데이터 공유 (중복 fetch 방지)
+- [ ] 테스트
+  - [ ] Database-only 모드에서 차트 정상 표시 확인
+  - [ ] WebSocket 업데이트 시 차트 실시간 갱신 확인
+  - [ ] Multiple metrics 선택 시 차트 정상 렌더링 확인
+  - [ ] Primary metric 강조 표시 확인
+
+**기술 상세**:
+
+**Backend API 응답 포맷** (기존 확인 필요):
+```json
+GET /training/jobs/{job_id}/metrics
+[
+  {
+    "id": 1,
+    "job_id": 123,
+    "epoch": 1,
+    "step": 100,
+    "loss": 0.456,
+    "accuracy": 0.78,
+    "extra_metrics": {
+      "precision": 0.82,
+      "recall": 0.75
+    },
+    "created_at": "2025-12-03T10:00:00Z"
+  },
+  ...
+]
+```
+
+**Frontend 차트 데이터 변환**:
+```typescript
+// Database metrics → Chart data
+const chartData = metrics.map(m => ({
+  epoch: m.epoch,
+  step: m.step,
+  loss: m.loss,
+  accuracy: m.accuracy,
+  ...m.extra_metrics, // flatten extra_metrics
+}));
+```
+
+**차트 컴포넌트 구조**:
+```typescript
+<DatabaseMetricsCharts
+  jobId={trainingJobId}
+  selectedMetrics={['loss', 'accuracy', 'precision']}
+  primaryMetric="loss"
+  refreshKey={metricsRefreshKey} // WebSocket trigger
+/>
+```
+
+**구현 완료 기준**:
+- [ ] Database-only 모드에서 차트가 정상 표시됨
+- [ ] 실시간 WebSocket 업데이트 시 차트가 자동 갱신됨
+- [ ] 여러 metric을 동시에 차트에 표시 가능
+- [ ] MLflow 의존성 완전 제거 또는 optional로 변경
+- [ ] Loading/Error state가 적절히 처리됨
+
+---
+
+### 13.5 Testing 및 Documentation (⬜ 0%)
 
 **예상 소요 시간**: 0.5일
 
@@ -3102,11 +3204,31 @@ After Phase 12.9:
 
 ---
 
-**Phase 13 총 예상 시간**: 4일
+### 13.6 TrainingCallbackService 리팩토링 (⬜ 0%)
+
+**예상 소요 시간**: 0.5일
+
+**배경**: Phase 13.5로 연기됨. 현재는 ObservabilityManager 인프라만 구축되었고, 실제 TrainingCallbackService와의 통합은 진행되지 않음. Database 차트 구현(13.4) 완료 후 진행 예정.
+
+**구현 위치**:
+- `platform/backend/app/services/training_callback_service.py`
+
+**구현 태스크**:
+- [ ] `ClearMLService` 직접 호출 제거
+- [ ] `ObservabilityManager` 인스턴스 주입
+- [ ] `handle_progress()` - `observability_manager.log_metrics()` 호출로 변경
+- [ ] `handle_completion()` - `observability_manager.finalize_experiment()` 호출로 변경
+- [ ] 에러 처리 및 로깅
+- [ ] 기존 ClearML 통합 테스트 통과 확인
+
+---
+
+**Phase 13 총 예상 시간**: 5일
 
 **Success Criteria**:
 - [ ] 사용자가 `.env` 파일에서 `OBSERVABILITY_BACKENDS` 설정 가능
 - [ ] Database-only 모드로 training 가능 (외부 도구 없이)
+- [ ] **Database-only 모드에서 차트가 정상 표시됨** (Phase 13.4)
 - [ ] ClearML + Database 동시 사용 가능
 - [ ] Frontend에서 WebSocket으로 실시간 metrics 업데이트 확인
 - [ ] 개별 adapter 실패 시에도 training 계속 진행 (Graceful Degradation)
@@ -3116,6 +3238,7 @@ After Phase 12.9:
 **Expected Outcomes**:
 - 사용자는 자신의 선호도에 따라 관측 도구 선택 가능 (Vendor Lock-in 방지)
 - 외부 도구(ClearML/MLflow) 없이도 Platform 자체 DB만으로 완전한 training monitoring 가능
+- **MLflow 없이도 차트가 정상 표시되어 training 진행 상황을 시각적으로 확인 가능**
 - 실시간 WebSocket 업데이트로 사용자 경험 향상 (polling delay 제거)
 - 새로운 관측 도구 추가 시 Adapter 구현만으로 확장 가능 (OCP 준수)
 
