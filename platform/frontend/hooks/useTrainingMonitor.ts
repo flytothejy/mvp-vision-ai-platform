@@ -142,7 +142,8 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
           // Handle specific message types
           if (message.type === 'training_status_change') {
             onStatusChange?.(message.job_id, message.old_status, message.new_status);
-          } else if (message.type === 'training_metrics') {
+          } else if (message.type === 'training_metrics' || message.type === 'training_progress') {
+            // Handle both training_metrics and training_progress (real-time updates from callbacks)
             onMetrics?.(message.job_id, message.metrics);
           } else if (message.type === 'training_log') {
             // Convert backend message format to TrainingLog format

@@ -148,10 +148,13 @@ class WebSocketManager:
             message: Message dict to send
         """
         if job_id not in self.job_connections:
+            logger.debug(f"[WebSocketManager] No subscribers for job {job_id}")
             return
 
         connections = self.job_connections[job_id].copy()
         disconnected = set()
+
+        logger.info(f"[WebSocketManager] Broadcasting to job {job_id}: {message.get('type')} ({len(connections)} clients)")
 
         for connection in connections:
             try:
@@ -163,6 +166,9 @@ class WebSocketManager:
         # Clean up disconnected clients
         for connection in disconnected:
             self.disconnect(connection)
+
+        if not disconnected:
+            logger.debug(f"[WebSocketManager] Successfully broadcasted to {len(connections)} clients")
 
     async def broadcast_to_session(self, session_id: int, message: dict):
         """

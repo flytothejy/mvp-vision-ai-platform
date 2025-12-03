@@ -63,8 +63,9 @@ export default function DatabaseMetricsTable({
   // IMPORTANT: useMemo must be called before any conditional returns (React hooks rule)
   const metricColumns = useMemo(() => {
     if (metricSchema?.available_metrics && metricSchema.available_metrics.length > 0) {
-      // Use schema if available
-      return metricSchema.available_metrics;
+      // Use schema if available - ensure unique values to avoid React key warnings
+      const uniqueMetrics = Array.from(new Set(metricSchema.available_metrics));
+      return uniqueMetrics;
     }
 
     // Extract unique metric keys from all metrics' extra_metrics

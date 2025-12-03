@@ -162,16 +162,8 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
     },
     onLog: (jobId, log) => {
       console.log(`[WebSocket] Job ${jobId} new log received:`, log)
-      // Add new log to state in real-time
-      setLogs((prevLogs) => [
-        ...prevLogs,
-        {
-          id: Date.now(), // Temporary ID
-          log_type: 'training',
-          content: `[${log.level}] ${log.message}`,
-          created_at: log.timestamp,
-        }
-      ])
+      // Refetch all logs (similar to metrics pattern)
+      fetchLogs()
     },
     onExportStatusChange: (jobId, exportJobId, oldStatus, newStatus) => {
       console.log(`[WebSocket] Export job ${exportJobId} status changed: ${oldStatus} -> ${newStatus}`)

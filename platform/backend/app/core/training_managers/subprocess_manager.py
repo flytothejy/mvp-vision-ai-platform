@@ -183,23 +183,31 @@ class SubprocessTrainingManager(TrainingManager):
             if dataset_version_hash:
                 env['DATASET_VERSION_HASH'] = dataset_version_hash
 
-            # Basic training parameters
+            # Basic training parameters (also set as individual env vars for backward compatibility)
             env['EPOCHS'] = str(config.get('epochs', 100))
             env['BATCH_SIZE'] = str(config.get('batch', 16))
             env['LEARNING_RATE'] = str(config.get('learning_rate', 0.01))
             env['IMGSZ'] = str(config.get('imgsz', 640))
             env['DEVICE'] = str(config.get('device', '0'))
 
-            # ===== CONFIG JSON: Complex, Trainer-specific Settings =====
-            advanced_config_json = {
+            # ===== CONFIG JSON: All training parameters =====
+            # IMPORTANT: Include basic parameters in CONFIG so train.py can read them
+            config_json = {
+                # Basic training parameters
+                'epochs': config.get('epochs', 100),
+                'batch': config.get('batch', 16),
+                'learning_rate': config.get('learning_rate', 0.01),
+                'imgsz': config.get('imgsz', 640),
+                'device': config.get('device', '0'),
+                # Advanced/trainer-specific settings
                 'advanced_config': config.get('advanced_config', {}),
                 'primary_metric': config.get('primary_metric'),
                 'primary_metric_mode': config.get('primary_metric_mode', 'max'),
                 'split_config': config.get('split_config'),
             }
             # Remove None values
-            advanced_config_json = {k: v for k, v in advanced_config_json.items() if v is not None}
-            env['CONFIG'] = json.dumps(advanced_config_json)
+            config_json = {k: v for k, v in config_json.items() if v is not None}
+            env['CONFIG'] = json.dumps(config_json)
 
             # Explicitly inject MinIO/Storage environment variables (for DualStorageClient)
             # These should already be in os.environ from Backend's .env, but we ensure they're passed
