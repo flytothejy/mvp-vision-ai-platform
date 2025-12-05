@@ -1,6 +1,142 @@
 # Platform Infrastructure
 
-Vision AI Training Platform의 Tier 1 개발 환경 인프라 구성.
+Vision AI Training Platform의 개발 환경 인프라 구성.
+
+이 디렉토리는 두 가지 인프라 설정 방법을 제공합니다:
+1. **Docker Compose** (권장): 빠른 로컬 개발을 위한 간단한 설정
+2. **Kubernetes (Kind)**: 프로덕션과 유사한 환경 테스트
+
+---
+
+## Option 1: Docker Compose (권장)
+
+### 개요
+
+Docker Compose를 사용한 빠르고 간단한 로컬 개발 환경입니다.
+
+**장점:**
+- ✅ 빠른 시작 (~30초)
+- ✅ 낮은 리소스 사용 (~1.5GB RAM)
+- ✅ 간단한 설정 및 관리
+- ✅ Windows/Mac/Linux 모두 지원
+
+**서비스 구성:**
+- PostgreSQL (Platform DB, User DB)
+- Redis (Cache, WebSocket State)
+- Temporal (Workflow Orchestration)
+- MinIO (Object Storage)
+- ClearML, MLflow, Grafana (선택적)
+
+### Quick Start
+
+#### Windows
+
+```powershell
+# Core 서비스만 시작
+.\start-infra.ps1
+
+# Observability 포함 시작
+.\start-infra.ps1 -WithObservability
+
+# 정지
+.\start-infra.ps1 -Stop
+```
+
+#### Linux/Mac
+
+```bash
+# 실행 권한 부여 (최초 1회)
+chmod +x start-infra.sh
+
+# Core 서비스만 시작
+./start-infra.sh
+
+# Observability 포함 시작
+./start-infra.sh --with-obs
+
+# 정지
+./start-infra.sh --stop
+```
+
+### 서비스 구성
+
+#### Core Services (필수)
+
+| Service | Port | Description |
+|---------|------|-------------|
+| PostgreSQL (Platform) | 5432 | 플랫폼 DB |
+| PostgreSQL (Users) | 5433 | 사용자 DB |
+| Redis | 6379 | 캐시 & Pub/Sub |
+| Temporal | 7233, 8233 | 워크플로우 오케스트레이션 |
+| MinIO (Datasets) | 9000, 9001 | 데이터셋 저장소 |
+| MinIO (Results) | 9002, 9003 | 결과물 저장소 |
+
+#### Observability Services (선택적)
+
+| Service | Port | Description |
+|---------|------|-------------|
+| ClearML API | 8008 | 실험 추적 API |
+| ClearML Web UI | 8080 | 웹 인터페이스 |
+| MLflow | 5000 | 대안 실험 추적 |
+| Grafana | 3200 | 시각화 |
+
+### 접속 정보
+
+- **Temporal UI**: http://localhost:8233
+- **MinIO Console (Datasets)**: http://localhost:9001 (minioadmin/minioadmin)
+- **MinIO Console (Results)**: http://localhost:9003 (minioadmin/minioadmin)
+- **ClearML Web UI**: http://localhost:8080
+- **MLflow**: http://localhost:5000
+- **Grafana**: http://localhost:3200 (admin/admin)
+
+### 수동 관리
+
+```bash
+# Core 서비스만
+docker-compose up -d
+
+# Observability 포함
+docker-compose -f docker-compose.yml -f docker-compose.observability.yml up -d
+
+# 정지
+docker-compose down
+
+# 정지 및 데이터 삭제 (주의!)
+docker-compose down -v
+```
+
+### 트러블슈팅
+
+```bash
+# 로그 확인
+docker-compose logs -f [service-name]
+
+# 서비스 재시작
+docker-compose restart [service-name]
+
+# 상태 확인
+docker-compose ps
+```
+
+**자세한 문서**: Docker Compose 사용법, 트러블슈팅, 데이터 관리 등은 파일 맨 아래 [Docker Compose 상세 가이드](#docker-compose-상세-가이드) 섹션을 참고하세요.
+
+---
+
+## Option 2: Kubernetes (Kind)
+
+### 개요
+
+프로덕션과 유사한 Kubernetes 환경 테스트를 위한 설정입니다.
+
+**장점:**
+- ✅ 프로덕션 환경과 동일한 구조
+- ✅ Helm Charts 기반 배포
+- ✅ 프로덕션 이전 테스트 가능
+
+**단점:**
+- ❌ 높은 리소스 사용 (~3GB RAM)
+- ❌ 복잡한 설정
+- ❌ 느린 시작 (~2분)
 
 ## 아키텍처
 
@@ -277,3 +413,316 @@ helm get manifest postgresql -n platform
 ## License
 
 Copyright © 2025 Vision AI Platform Team
+
+
+---
+
+## Docker Compose 상세 가이드
+
+### 파일 구조
+
+```
+platform/infrastructure/
+├── docker-compose.yml                 # Core services (필수)
+├── docker-compose.observability.yml   # Observability services (선택적)
+├── start-infra.ps1                   # Windows 시작 스크립트
+├── start-infra.sh                    # Linux/Mac 시작 스크립트
+└── temporal/
+    └── dynamicconfig/
+        └── development.yaml          # Temporal 설정
+```
+
+### 서비스 상세
+
+#### PostgreSQL (Platform DB)
+
+```yaml
+Port: 5432
+User: admin
+Password: devpass
+Database: platform
+```
+
+**용도**: projects, training jobs, datasets, metrics, export jobs, deployments
+
+**접속 테스트**:
+```bash
+docker exec -it platform-postgres psql -U admin -d platform
+```
+
+#### PostgreSQL (User DB)
+
+```yaml
+Port: 5433
+User: admin
+Password: devpass
+Database: users
+```
+
+**용도**: 사용자 인증 (Platform + Labeler 공유)
+
+#### Redis
+
+```yaml
+Port: 6379
+Password: (없음)
+```
+
+**용도**: Session store, Pub/Sub, WebSocket state, Caching
+
+**접속 테스트**:
+```bash
+docker exec -it platform-redis redis-cli ping
+# 출력: PONG
+```
+
+#### Temporal
+
+```yaml
+gRPC Port: 7233
+Web UI Port: 8233
+```
+
+**용도**: 워크플로우 오케스트레이션, 학습 라이프사이클 관리
+
+**Web UI**: http://localhost:8233
+
+#### MinIO (Datasets)
+
+```yaml
+API Port: 9000
+Console Port: 9001
+Access Key: minioadmin
+Secret Key: minioadmin
+```
+
+**용도**: 학습 데이터셋, 사용자 업로드
+
+**Buckets**:
+- `training-datasets`
+
+#### MinIO (Results)
+
+```yaml
+API Port: 9002
+Console Port: 9003
+Access Key: minioadmin
+Secret Key: minioadmin
+```
+
+**용도**: 체크포인트, 가중치, config schemas
+
+**Buckets**:
+- `model-weights`
+- `training-checkpoints`
+- `config-schemas`
+- `training-results`
+
+### Observability Services
+
+#### ClearML
+
+**Services**:
+- API Server: 8008
+- Web UI: 8080
+- File Server: 8081
+
+**Dependencies** (자동 시작):
+- Elasticsearch: 9200
+- MongoDB: 27018
+- Redis: 6380
+
+**용도**: 실험 추적, 모델 레지스트리
+
+**Web UI**: http://localhost:8080
+
+#### MLflow
+
+```yaml
+Port: 5000
+Backend Store: PostgreSQL (platform DB)
+Artifact Root: MinIO (s3://mlflow-artifacts)
+```
+
+**용도**: 대안 실험 추적 도구
+
+#### Loki & Grafana
+
+**Loki**:
+- Port: 3100
+- 용도: 로그 수집
+
+**Grafana**:
+- Port: 3200
+- Login: admin/admin
+- 용도: 로그 & 메트릭 시각화
+
+### 환경 변수 설정
+
+Backend `.env` 파일에서 서비스 연결 정보 설정:
+
+```bash
+# Database
+DATABASE_URL=postgresql://admin:devpass@localhost:5432/platform
+USER_DATABASE_URL=postgresql://admin:devpass@localhost:5433/users
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Temporal
+TEMPORAL_HOST=localhost:7233
+TEMPORAL_NAMESPACE=default
+
+# MinIO
+EXTERNAL_STORAGE_ENDPOINT=http://localhost:9000
+EXTERNAL_STORAGE_ACCESS_KEY=minioadmin
+EXTERNAL_STORAGE_SECRET_KEY=minioadmin
+
+INTERNAL_STORAGE_ENDPOINT=http://localhost:9002
+INTERNAL_STORAGE_ACCESS_KEY=minioadmin
+INTERNAL_STORAGE_SECRET_KEY=minioadmin
+
+# Observability (선택)
+OBSERVABILITY_BACKENDS=database  # 또는 clearml,database
+
+CLEARML_API_HOST=http://localhost:8008
+CLEARML_WEB_HOST=http://localhost:8080
+CLEARML_FILES_HOST=http://localhost:8081
+
+MLFLOW_TRACKING_URI=http://localhost:5000
+```
+
+### 데이터 관리
+
+#### 백업
+
+```bash
+# PostgreSQL 백업
+docker exec platform-postgres pg_dump -U admin platform > backup_$(date +%Y%m%d).sql
+
+# 복구
+docker exec -i platform-postgres psql -U admin platform < backup_20250105.sql
+
+# MinIO 백업 (mc 도구 필요)
+mc alias set myminio http://localhost:9000 minioadmin minioadmin
+mc mirror myminio/training-datasets ./backup/datasets
+```
+
+#### 데이터 초기화
+
+```bash
+# 주의: 모든 데이터가 삭제됩니다!
+docker-compose down -v
+
+# 특정 볼륨만 삭제
+docker volume rm platform_postgres_platform_data
+```
+
+### 리소스 사용량
+
+**Core Services Only**:
+- 메모리: ~1.5GB
+- CPU: 5-10%
+- 디스크: ~500MB (데이터 제외)
+- 시작 시간: ~30초
+
+**With Observability (ClearML + MLflow)**:
+- 메모리: ~4GB
+- CPU: 15-25%
+- 디스크: ~2GB (데이터 제외)
+- 시작 시간: ~2분
+
+### 고급 사용법
+
+#### 특정 서비스만 시작
+
+```bash
+# ClearML만 시작
+docker-compose -f docker-compose.observability.yml up -d \
+  clearml-elasticsearch clearml-mongo clearml-redis \
+  clearml-apiserver clearml-webserver clearml-fileserver
+
+# MLflow만 시작
+docker-compose -f docker-compose.observability.yml up -d mlflow
+```
+
+#### 로그 모니터링
+
+```bash
+# 모든 서비스 로그 (실시간)
+docker-compose logs -f
+
+# 특정 서비스 로그
+docker-compose logs -f postgres-platform
+
+# 마지막 100줄만
+docker-compose logs --tail=100 temporal
+```
+
+#### 서비스 재시작
+
+```bash
+# 모든 서비스
+docker-compose restart
+
+# 특정 서비스만
+docker-compose restart postgres-platform redis
+
+# 설정 변경 후 재생성
+docker-compose up -d --force-recreate postgres-platform
+```
+
+### 트러블슈팅
+
+#### 포트 충돌
+
+다른 서비스가 포트를 사용 중인 경우 `docker-compose.yml`에서 포트 변경:
+
+```yaml
+# 예: PostgreSQL 포트 변경
+ports:
+  - "15432:5432"  # 5432 → 15432
+```
+
+#### 서비스 시작 실패
+
+```bash
+# 로그 확인
+docker-compose logs [service-name]
+
+# 컨테이너 상태 확인
+docker-compose ps
+
+# 헬스체크 확인
+docker inspect platform-postgres | grep Health -A 10
+```
+
+#### 데이터베이스 연결 실패
+
+```bash
+# PostgreSQL 재시작
+docker-compose restart postgres-platform
+
+# 연결 테스트
+docker exec -it platform-postgres psql -U admin -d platform -c "SELECT 1;"
+```
+
+#### MinIO 버킷 없음
+
+```bash
+# 버킷 생성 컨테이너 재실행
+docker-compose up -d minio-setup
+
+# 수동 생성
+docker exec -it platform-minio-datasets mc mb /data/training-datasets
+```
+
+### Production 고려사항
+
+Docker Compose는 로컬 개발용입니다. 프로덕션 배포 시:
+
+1. **시크릿 변경**: 모든 기본 비밀번호 변경
+2. **리소스 제한**: `deploy.resources` 설정 추가
+3. **영구 볼륨**: 외부 볼륨 또는 클라우드 스토리지 사용
+4. **Managed Services**: PostgreSQL (RDS), Redis (ElastiCache), S3 사용 고려
+

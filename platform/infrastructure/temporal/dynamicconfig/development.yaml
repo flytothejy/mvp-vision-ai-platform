@@ -1,0 +1,43 @@
+# Temporal Dynamic Configuration for Development
+# This file contains runtime configuration for Temporal server
+
+# System settings
+system.forceSearchAttributesCacheRefreshOnRead:
+  - value: true
+    constraints: {}
+
+# Frontend settings
+frontend.enableClientVersionCheck:
+  - value: false
+    constraints: {}
+
+# History settings
+history.defaultActivityRetryPolicy:
+  - value:
+      InitialIntervalInSeconds: 1
+      MaximumIntervalInSeconds: 100
+      BackoffCoefficient: 2.0
+      MaximumAttempts: 0
+    constraints: {}
+
+history.defaultWorkflowRetryPolicy:
+  - value:
+      InitialIntervalInSeconds: 1
+      MaximumIntervalInSeconds: 100
+      BackoffCoefficient: 2.0
+      MaximumAttempts: 0
+    constraints: {}
+
+# Worker settings
+matching.numTaskqueueReadPartitions:
+  - value: 4
+    constraints: {}
+
+matching.numTaskqueueWritePartitions:
+  - value: 4
+    constraints: {}
+
+# Retention period (default: 7 days for development)
+system.defaultWorkflowExecutionRetentionTime:
+  - value: "168h"
+    constraints: {}

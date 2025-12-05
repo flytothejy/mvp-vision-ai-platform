@@ -1,0 +1,221 @@
+# ================================
+# Vision AI Training Platform - Infrastructure
+# ================================
+#
+# Core services required for platform operation:
+#   - PostgreSQL (Platform DB + User DB)
+#   - Redis (Cache, WebSocket state, Pub/Sub)
+#   - Temporal (Workflow orchestration)
+#   - MinIO (Object storage for datasets and results)
+#
+# Usage:
+#   docker-compose up -d                    # Start all core services
+#   docker-compose --profile obs up -d      # Include observability services
+#   docker-compose down                     # Stop all services
+#   docker-compose down -v                  # Stop and remove volumes (CAUTION: deletes data)
+#
+# For observability tools (ClearML, MLflow, Grafana):
+#   See docker-compose.observability.yml
+
+version: '3.8'
+
+services:
+  # ==========================================
+  # PostgreSQL - Platform Database
+  # ==========================================
+  # Stores: projects, training jobs, datasets, metrics, export jobs, deployments
+  postgres-platform:
+    image: postgres:16-alpine
+    container_name: platform-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: platform
+    volumes:
+      - postgres_platform_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - platform-network
+
+  # ==========================================
+  # PostgreSQL - User Database
+  # ==========================================
+  # Shared database for user authentication (Platform + Labeler)
+  postgres-users:
+    image: postgres:16-alpine
+    container_name: platform-postgres-users
+    restart: unless-stopped
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: devpass
+      POSTGRES_DB: users
+    volumes:
+      - postgres_users_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d users"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - platform-network
+
+  # ==========================================
+  # Redis - Cache and State Management
+  # ==========================================
+  # Used for: session store, pub/sub, WebSocket state, caching
+  redis:
+    image: redis:7.2-alpine
+    container_name: platform-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - platform-network
+
+  # ==========================================
+  # Temporal - Workflow Orchestration
+  # ==========================================
+  # Handles training workflow lifecycle, retries, timeouts
+  temporal:
+    image: temporalio/auto-setup:1.22.4
+    container_name: platform-temporal
+    restart: unless-stopped
+    ports:
+      - "7233:7233"  # gRPC
+      - "8233:8233"  # Web UI
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=admin
+      - POSTGRES_PWD=devpass
+      - POSTGRES_SEEDS=postgres-platform
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
+    volumes:
+      - ./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
+    depends_on:
+      postgres-platform:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - platform-network
+
+  # ==========================================
+  # MinIO - Datasets Storage (External)
+  # ==========================================
+  # Stores: training datasets, user uploads
+  # S3-compatible storage (can be replaced with R2, S3, etc.)
+  minio-datasets:
+    image: minio/minio:latest
+    container_name: platform-minio-datasets
+    restart: unless-stopped
+    ports:
+      - "9000:9000"  # API
+      - "9001:9001"  # Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_datasets_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - platform-network
+
+  # ==========================================
+  # MinIO - Results Storage (Internal)
+  # ==========================================
+  # Stores: pretrained weights, checkpoints, config schemas, training results
+  minio-results:
+    image: minio/minio:latest
+    container_name: platform-minio-results
+    restart: unless-stopped
+    ports:
+      - "9002:9000"  # API
+      - "9003:9001"  # Console UI
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_results_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - platform-network
+
+  # ==========================================
+  # MinIO Bucket Initialization
+  # ==========================================
+  # Creates required buckets on first startup
+  minio-setup:
+    image: minio/mc:latest
+    container_name: platform-minio-setup
+    depends_on:
+      - minio-datasets
+      - minio-results
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set datasets http://minio-datasets:9000 minioadmin minioadmin;
+      mc alias set results http://minio-results:9000 minioadmin minioadmin;
+      mc mb --ignore-existing datasets/training-datasets;
+      mc mb --ignore-existing results/model-weights;
+      mc mb --ignore-existing results/training-checkpoints;
+      mc mb --ignore-existing results/config-schemas;
+      mc mb --ignore-existing results/training-results;
+      mc anonymous set download datasets/training-datasets;
+      echo 'MinIO buckets created successfully';
+      "
+    networks:
+      - platform-network
+
+# ==========================================
+# Volumes
+# ==========================================
+volumes:
+  postgres_platform_data:
+    driver: local
+  postgres_users_data:
+    driver: local
+  redis_data:
+    driver: local
+  minio_datasets_data:
+    driver: local
+  minio_results_data:
+    driver: local
+
+# ==========================================
+# Networks
+# ==========================================
+networks:
+  platform-network:
+    driver: bridge
+    name: platform-network
