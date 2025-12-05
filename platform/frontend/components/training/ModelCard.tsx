@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { ChevronRight, Sparkles, Target } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
-import Badge from '@/components/ui/Badge'
+import Badge from '@/components/ui/badge'
 
 export interface ModelInfo {
   framework: string

@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { Play, Square, AlertCircle, ExternalLink, ArrowLeft, ChevronRight, ChevronDown, ChevronUp, HelpCircle } from 'lucide-react'
 import { cn } from '@/lib/utils/cn'
 import { getModelDisplayNameSync, getTaskDisplayName, formatTrainingJobTitle } from '@/lib/utils/modelUtils'
-// import MLflowMetricsCharts from './training/MLflowMetricsCharts' // Removed: Migrated to ClearML
+import DatabaseMetricsCharts from './training/DatabaseMetricsCharts'
 import DatabaseMetricsTable from './training/DatabaseMetricsTable'
 import ResumeDialog from './training/ResumeDialog'
 import { ValidationDashboard } from './training/validation/ValidationDashboard'
@@ -39,6 +39,7 @@ interface TrainingJob {
   // Phase 12: Temporal Workflow & Dataset Snapshot metadata
   workflow_id?: string | null
   dataset_snapshot_id?: string | null
+  clearml_task_id?: string | null
 }
 
 interface TrainingMetric {
@@ -149,7 +150,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
 
   // WebSocket for real-time updates (replaces polling)
   useTrainingMonitor({
-    jobId: trainingJobId,
+    jobId: trainingJobId ?? undefined,
     autoConnect: !!trainingJobId,
     onStatusChange: (jobId, oldStatus, newStatus) => {
       console.log(`[WebSocket] Job ${jobId} status changed: ${oldStatus} -> ${newStatus}`)
@@ -797,7 +798,18 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                   </a>
                 </div>
               </div>
-              {/* MLflowMetricsCharts removed - migrated to ClearML */}
+
+              {/* Database Metrics Charts - Shows charts from Platform DB */}
+              {job.status !== 'pending' && (
+                <div className="mb-6">
+                  <DatabaseMetricsCharts
+                    jobId={job.id}
+                    selectedMetrics={selectedMetrics}
+                    jobStatus={job.status}
+                    refreshKey={metricsRefreshKey}
+                  />
+                </div>
+              )}
             </div>
 
             {/* Metrics Table - Hide when pending */}

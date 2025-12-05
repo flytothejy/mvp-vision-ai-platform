@@ -435,7 +435,7 @@ export default function TestInferencePanel({ jobId }: TestInferencePanelProps) {
             )
 
             setImages(prev => prev.map(img => {
-              const result = resultsByOriginalName.get(img.file.name)
+              const result = resultsByOriginalName.get(img.file.name) as any
               if (result) {
                 // Map task_type: "detection" → "object_detection", etc.
                 const taskTypeMap: Record<string, string> = {

@@ -285,7 +285,7 @@ def get_project_experiments(
     )
 
     from app.schemas.training import TrainingJobResponse
-    return [TrainingJobResponse.from_orm(exp) for exp in experiments]
+    return [TrainingJobResponse.model_validate(exp) for exp in experiments]
 
 
 @router.get("/{project_id}/members", response_model=List[ProjectMemberResponse])

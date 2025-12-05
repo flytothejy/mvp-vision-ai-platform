@@ -285,7 +285,7 @@ async def execute_training(job_id: int, clearml_task_id: str) -> Dict[str, Any]:
             training_config["split_config"] = job.advanced_config["split_config"]
 
         # Build callback URL (base URL only - TrainerSDK adds operation-specific paths)
-        callback_url = f"http://localhost:{settings.BACKEND_PORT}/api/v1"
+        callback_url = f"{settings.API_BASE_URL}/api/v1"
 
         # 4. Start training (Phase 12.9: Added snapshot_id and dataset_version_hash for caching)
         training_metadata = await manager.start_training(

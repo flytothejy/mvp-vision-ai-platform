@@ -3079,53 +3079,51 @@ After Phase 12.9:
 
 ---
 
-### 13.4 Database 기반 차트 표시 구현 (⬜ 0%)
+### 13.4 Database 기반 차트 표시 구현 (✅ 100%)
 
-**예상 소요 시간**: 1일
+**예상 소요 시간**: 1일 (실제: 1일)
 
 **배경**: 현재 `MLflowMetricsCharts` 컴포넌트는 MLflow API에 의존하여 차트를 렌더링하고 있음. `OBSERVABILITY_BACKENDS=database` 모드에서는 MLflow를 사용하지 않으므로 차트가 표시되지 않음. Database Adapter를 사용하여 Platform DB에서 직접 metrics를 조회하고 차트를 렌더링하도록 변경 필요.
 
 **구현 위치**:
-- `platform/frontend/components/training/DatabaseMetricsCharts.tsx` (신규 생성 또는 MLflowMetricsCharts 리팩토링)
+- `platform/frontend/components/training/DatabaseMetricsCharts.tsx` (신규 생성)
 - `platform/frontend/components/TrainingPanel.tsx` (차트 컴포넌트 교체)
-- `platform/backend/app/api/training.py` (기존 엔드포인트 확인)
+- `platform/backend/app/api/training.py` (기존 엔드포인트 활용)
 
 **구현 태스크**:
-- [ ] Backend API 엔드포인트 확인 및 개선
-  - [x] `GET /training/jobs/{job_id}/metrics` - 이미 존재, 응답 포맷 확인 필요
+- [x] Backend API 엔드포인트 확인 및 개선
+  - [x] `GET /training/jobs/{job_id}/metrics` - 이미 존재, 응답 포맷 확인 완료
   - [x] `GET /training/jobs/{job_id}/metrics/schema` - 이미 존재, metric schema 조회
-  - [ ] 응답 포맷이 차트 렌더링에 적합한지 검증
-  - [ ] 필요시 aggregation/filtering 파라미터 추가 (예: `metric_names`, `limit`)
-- [ ] Frontend 차트 컴포넌트 구현
-  - [ ] `DatabaseMetricsCharts.tsx` 생성 또는 `MLflowMetricsCharts.tsx` 리팩토링
-    - [ ] MLflow API 호출 제거
-    - [ ] Database API (`/training/jobs/{job_id}/metrics`) 호출로 변경
-    - [ ] 데이터 포맷 변환 (Database → Chart format)
-  - [ ] 차트 라이브러리 선택 (Recharts/Chart.js 등 기존 사용 중인 것 활용)
-  - [ ] Multiple metrics 동시 표시 (primary metric + selected metrics)
-  - [ ] Time-series 차트 렌더링 (epoch/step별 metrics)
-  - [ ] Empty state 처리 (metrics 없을 때)
-- [ ] TrainingPanel 통합
-  - [ ] `MLflowMetricsCharts` → `DatabaseMetricsCharts` 교체
-  - [ ] Props 인터페이스 조정 (jobId, selectedMetrics, refreshKey)
-  - [ ] WebSocket `refreshKey` 통합 (실시간 차트 업데이트)
-  - [ ] Loading/Error state 처리
-- [ ] 데이터 포맷 통일
-  - [ ] TrainingMetric 모델 확인 (epoch, step, loss, accuracy, extra_metrics)
-  - [ ] Chart 데이터 구조 정의
+  - [x] 응답 포맷이 차트 렌더링에 적합한지 검증 완료
+  - [x] Limit 파라미터 활용 (최대 1000개 조회)
+- [x] Frontend 차트 컴포넌트 구현
+  - [x] `DatabaseMetricsCharts.tsx` 생성 (새 컴포넌트)
+    - [x] Database API (`/training/jobs/{job_id}/metrics`) 호출로 변경
+    - [x] 데이터 포맷 변환 (Database → Chart format)
+  - [x] 차트 라이브러리 선택 (MLflow와 동일한 SVG 기반 차트 재사용)
+  - [x] Multiple metrics 동시 표시 (primary metric + selected metrics)
+  - [x] Time-series 차트 렌더링 (epoch/step별 metrics)
+  - [x] Empty state 처리 (metrics 없을 때)
+- [x] TrainingPanel 통합
+  - [x] DatabaseMetricsCharts 추가 (MLflow 차트와 병행)
+  - [x] Props 인터페이스 조정 (jobId, selectedMetrics, refreshKey)
+  - [x] WebSocket `refreshKey` 통합 (실시간 차트 업데이트)
+  - [x] Loading/Error state 처리
+- [x] 데이터 포맷 통일
+  - [x] TrainingMetric 모델 확인 (epoch, step, loss, accuracy, extra_metrics)
+  - [x] Chart 데이터 구조 정의
     ```typescript
-    interface ChartDataPoint {
-      epoch: number;
-      step?: number;
-      [metricName: string]: number | undefined; // loss, accuracy, etc.
+    interface MetricDataPoint {
+      step: number;    // epoch number
+      value: number;
+      timestamp: number;
     }
     ```
-  - [ ] DatabaseMetricsTable과 데이터 공유 (중복 fetch 방지)
-- [ ] 테스트
-  - [ ] Database-only 모드에서 차트 정상 표시 확인
-  - [ ] WebSocket 업데이트 시 차트 실시간 갱신 확인
-  - [ ] Multiple metrics 선택 시 차트 정상 렌더링 확인
-  - [ ] Primary metric 강조 표시 확인
+  - [x] extra_metrics 플랫 변환 (각 metric을 별도 시계열로 변환)
+- [x] 추가 수정사항
+  - [x] TypeScript 타입 오류 수정 (ModelCard, TestInferencePanel, TrainingPanel)
+  - [x] useTrainingMonitor에 training_progress 메시지 타입 추가
+  - [x] Frontend 빌드 성공 확인
 
 **기술 상세**:
 

@@ -40,6 +40,7 @@ export type TrainingMessage =
   | { type: 'connected'; message: string; timestamp: string }
   | { type: 'training_status_change'; job_id: number; old_status: string; new_status: string; timestamp: string }
   | { type: 'training_metrics'; job_id: number; metrics: TrainingMetrics }
+  | { type: 'training_progress'; job_id: number; metrics: TrainingMetrics }
   | { type: 'training_log'; job_id: number; level: string; event_type: string; message: string; timestamp: string }
   | { type: 'training_complete'; job_id: number; timestamp: string }
   | { type: 'training_error'; job_id: number; error: string; timestamp: string }
@@ -150,7 +151,7 @@ export function useTrainingMonitor(options: UseTrainingMonitorOptions = {}) {
             const log: TrainingLog = {
               job_id: message.job_id,
               message: message.message,
-              level: message.level,
+              level: message.level as 'INFO' | 'WARNING' | 'ERROR',
               timestamp: message.timestamp,
             };
             onLog?.(message.job_id, log);
