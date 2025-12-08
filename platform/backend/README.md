@@ -131,8 +131,8 @@ poetry install
 # 또는 pip 사용
 pip install -r requirements.txt
 
-# DB 마이그레이션
-python migrate_db.py
+# DB 초기화 (새 환경인 경우)
+python init_db.py
 
 # 개발 서버 실행
 poetry run uvicorn app.main:app --reload --port 8000
@@ -339,7 +339,7 @@ http://localhost:8080
 
 ```bash
 # DB 초기화 (개발 환경만!)
-python migrate_db.py --reset
+python init_db.py --reset
 
 # 또는 Docker 볼륨 삭제
 docker-compose down -v
