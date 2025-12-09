@@ -3,7 +3,7 @@
 # ================================
 #
 # Core services required for platform operation:
-#   - PostgreSQL (Platform DB + User DB)
+#   - PostgreSQL (Single instance with 3 databases: platform, users, labeler)
 #   - Redis (Cache, WebSocket state, Pub/Sub)
 #   - Temporal (Workflow orchestration)
 #   - MinIO (Object storage for datasets and results)
@@ -21,10 +21,13 @@ version: '3.8'
 
 services:
   # ==========================================
-  # PostgreSQL - Platform Database
+  # PostgreSQL - Unified Database Instance
   # ==========================================
-  # Stores: projects, training jobs, datasets, metrics, export jobs, deployments
-  postgres-platform:
+  # Single PostgreSQL instance with 3 databases:
+  #   - platform: Platform metadata (training jobs, experiments, metrics)
+  #   - users: User authentication (shared by Platform + Labeler)
+  #   - labeler: Dataset annotations (managed by Labeler team)
+  postgres:
     image: postgres:16-alpine
     container_name: platform-postgres
     restart: unless-stopped
@@ -33,35 +36,12 @@ services:
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: devpass
-      POSTGRES_DB: platform
+      POSTGRES_DB: platform  # Default database
     volumes:
-      - postgres_platform_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d platform"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - platform-network
-
-  # ==========================================
-  # PostgreSQL - User Database
-  # ==========================================
-  # Shared database for user authentication (Platform + Labeler)
-  postgres-users:
-    image: postgres:16-alpine
-    container_name: platform-postgres-users
-    restart: unless-stopped
-    ports:
-      - "5433:5432"
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: devpass
-      POSTGRES_DB: users
-    volumes:
-      - postgres_users_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d users"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -105,12 +85,12 @@ services:
       - DB_PORT=5432
       - POSTGRES_USER=admin
       - POSTGRES_PWD=devpass
-      - POSTGRES_SEEDS=postgres-platform
+      - POSTGRES_SEEDS=postgres
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development.yaml
     volumes:
       - ./temporal/dynamicconfig:/etc/temporal/config/dynamicconfig
     depends_on:
-      postgres-platform:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "tctl", "--address", "temporal:7233", "cluster", "health"]
@@ -201,9 +181,7 @@ services:
 # Volumes
 # ==========================================
 volumes:
-  postgres_platform_data:
-    driver: local
-  postgres_users_data:
+  postgres_data:
     driver: local
   redis_data:
     driver: local

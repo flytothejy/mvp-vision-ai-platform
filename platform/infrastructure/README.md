@@ -64,8 +64,7 @@ chmod +x start-infra.sh
 
 | Service | Port | Description |
 |---------|------|-------------|
-| PostgreSQL (Platform) | 5432 | 플랫폼 DB |
-| PostgreSQL (Users) | 5433 | 사용자 DB |
+| PostgreSQL | 5432 | 통합 DB (platform, users, labeler) |
 | Redis | 6379 | 캐시 & Pub/Sub |
 | Temporal | 7233, 8233 | 워크플로우 오케스트레이션 |
 | MinIO (Datasets) | 9000, 9001 | 데이터셋 저장소 |
@@ -434,32 +433,44 @@ platform/infrastructure/
 
 ### 서비스 상세
 
-#### PostgreSQL (Platform DB)
+#### PostgreSQL (Unified Instance)
 
 ```yaml
 Port: 5432
 User: admin
 Password: devpass
-Database: platform
+Databases:
+  - platform  # Platform metadata
+  - users     # User authentication (shared)
+  - labeler   # Dataset annotations (Labeler team)
 ```
 
-**용도**: projects, training jobs, datasets, metrics, export jobs, deployments
+**아키텍처**: 하나의 PostgreSQL 인스턴스에 3개의 독립적인 데이터베이스
+- **리소스 효율성**: PostgreSQL 프로세스 1개 (기존 대비 ~66% 메모리 절감)
+- **관리 간소화**: 단일 컨테이너, 단일 백업/복원
+- **논리적 격리**: 데이터베이스 간 직접 쿼리 불가
+
+**데이터베이스별 용도**:
+1. **platform**: Platform 팀 관리 - training jobs, experiments, metrics, export jobs
+2. **users**: Platform 팀 관리 - user authentication, organizations (Labeler와 공유)
+3. **labeler**: Labeler 팀 관리 - datasets, annotations (스키마 독립 관리)
 
 **접속 테스트**:
 ```bash
+# Platform database
 docker exec -it platform-postgres psql -U admin -d platform
+
+# Users database
+docker exec -it platform-postgres psql -U admin -d users
+
+# Labeler database
+docker exec -it platform-postgres psql -U admin -d labeler
+
+# List all databases
+docker exec -it platform-postgres psql -U admin -c "\l"
 ```
 
-#### PostgreSQL (User DB)
-
-```yaml
-Port: 5433
-User: admin
-Password: devpass
-Database: users
-```
-
-**용도**: 사용자 인증 (Platform + Labeler 공유)
+**자세한 내용**: [DATABASE_MANAGEMENT.md](../../docs/infrastructure/DATABASE_MANAGEMENT.md)
 
 #### Redis
 
@@ -562,9 +573,9 @@ Artifact Root: MinIO (s3://mlflow-artifacts)
 Backend `.env` 파일에서 서비스 연결 정보 설정:
 
 ```bash
-# Database
+# Database (single PostgreSQL instance, multiple databases)
 DATABASE_URL=postgresql://admin:devpass@localhost:5432/platform
-USER_DATABASE_URL=postgresql://admin:devpass@localhost:5433/users
+USER_DATABASE_URL=postgresql://admin:devpass@localhost:5432/users
 
 # Redis
 REDIS_URL=redis://localhost:6379/0
@@ -653,7 +664,7 @@ docker-compose -f docker-compose.observability.yml up -d mlflow
 docker-compose logs -f
 
 # 특정 서비스 로그
-docker-compose logs -f postgres-platform
+docker-compose logs -f postgres
 
 # 마지막 100줄만
 docker-compose logs --tail=100 temporal
@@ -666,10 +677,10 @@ docker-compose logs --tail=100 temporal
 docker-compose restart
 
 # 특정 서비스만
-docker-compose restart postgres-platform redis
+docker-compose restart postgres redis
 
 # 설정 변경 후 재생성
-docker-compose up -d --force-recreate postgres-platform
+docker-compose up -d --force-recreate postgres
 ```
 
 ### 트러블슈팅
@@ -701,7 +712,7 @@ docker inspect platform-postgres | grep Health -A 10
 
 ```bash
 # PostgreSQL 재시작
-docker-compose restart postgres-platform
+docker-compose restart postgres
 
 # 연결 테스트
 docker exec -it platform-postgres psql -U admin -d platform -c "SELECT 1;"
