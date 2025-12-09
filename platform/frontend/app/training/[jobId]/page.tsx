@@ -105,7 +105,7 @@ export default function TrainingJobPage() {
           <h3 className="text-lg font-semibold mb-2">External Tracking</h3>
           <div className="space-y-2">
             <a
-              href={`${process.env.NEXT_PUBLIC_MLFLOW_URL || 'http://localhost:30500'}/#/experiments/${job.mlflow_run_id}`}
+              href={`${process.env.NEXT_PUBLIC_MLFLOW_URL || 'http://localhost:5000'}/#/experiments/${job.mlflow_run_id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center text-blue-600 hover:text-blue-800"
@@ -114,7 +114,7 @@ export default function TrainingJobPage() {
             </a>
             <br />
             <a
-              href="http://localhost:30030/d/training-dashboard"
+              href={`${process.env.NEXT_PUBLIC_GRAFANA_URL || 'http://localhost:3200'}/d/training-dashboard`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center text-blue-600 hover:text-blue-800"

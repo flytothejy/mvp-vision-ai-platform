@@ -195,7 +195,7 @@ def login(
         if "connection refused" in error_msg or "could not connect" in error_msg:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Database server is not available. Please ensure PostgreSQL is running on port 5433."
+                detail="Database server is not available. Please ensure PostgreSQL is running and accessible."
             )
         else:
             raise HTTPException(

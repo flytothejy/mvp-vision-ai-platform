@@ -24,6 +24,9 @@ class Settings(BaseSettings):
         """Parse CORS origins from comma-separated string."""
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
 
+    # Frontend URL (for email links, redirects, etc.)
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # Database (set via DATABASE_URL environment variable)
     # If not set, will use local SQLite in __init__
     DATABASE_URL: Optional[str] = None

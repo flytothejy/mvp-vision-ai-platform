@@ -16,7 +16,8 @@ export default function MetricsVisualization({
   // - kiosk: hide Grafana UI elements
   // - var-job_id: set the job_id variable
   // - refresh=10s: auto-refresh every 10 seconds
-  const grafanaUrl = `http://localhost:3001/d/vision-ai-training/vision-ai-training-metrics?orgId=1&kiosk&var-job_id=${jobId}&refresh=10s&from=now-30m&to=now`;
+  const grafanaBaseUrl = process.env.NEXT_PUBLIC_GRAFANA_URL || "http://localhost:3200";
+  const grafanaUrl = `${grafanaBaseUrl}/d/vision-ai-training/vision-ai-training-metrics?orgId=1&kiosk&var-job_id=${jobId}&refresh=10s&from=now-30m&to=now`;
 
   return (
     <div className="w-full rounded-lg overflow-hidden border border-gray-200 shadow-sm">

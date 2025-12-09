@@ -149,7 +149,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       // Network error (server not running, CORS, etc.)
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (http://localhost:8001).')
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+        const baseUrl = apiUrl.replace('/api/v1', '');
+        throw new Error(`🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (${baseUrl}).`)
       }
 
       // Re-throw if it's already our custom error
@@ -198,7 +200,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       // Network error (server not running, CORS, etc.)
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error('🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (http://localhost:8001).')
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
+        const baseUrl = apiUrl.replace('/api/v1', '');
+        throw new Error(`🌐 Backend 서버에 연결할 수 없습니다.\n\nBackend가 실행 중인지 확인해주세요 (${baseUrl}).`)
       }
 
       // Re-throw if it's already our custom error

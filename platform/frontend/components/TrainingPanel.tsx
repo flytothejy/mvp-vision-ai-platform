@@ -778,7 +778,7 @@ export default function TrainingPanel({ trainingJobId, onNavigateToExperiments }
                 </div>
                 <div className="flex items-center gap-3">
                   <a
-                    href="http://localhost:3001"
+                    href={process.env.NEXT_PUBLIC_GRAFANA_URL || "http://localhost:3200"}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-xs text-orange-600 hover:text-orange-700 hover:underline flex items-center gap-1"
