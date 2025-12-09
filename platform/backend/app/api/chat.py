@@ -38,26 +38,24 @@ async def get_capabilities():
     - Default values
     """
     # Framework configuration
+    # Note: Service URLs removed - subprocess mode doesn't use HTTP APIs
     frameworks_config = {
         "timm": {
             "name": "timm",
             "display_name": "PyTorch Image Models (timm)",
             "description": "Image classification with pretrained models",
-            "url": settings.TIMM_SERVICE_URL,
             "supported": True
         },
         "ultralytics": {
             "name": "ultralytics",
             "display_name": "Ultralytics YOLO",
             "description": "Object detection, segmentation, and pose estimation",
-            "url": settings.ULTRALYTICS_SERVICE_URL,
             "supported": True
         },
         "huggingface": {
             "name": "transformers",
             "display_name": "HuggingFace Transformers",
             "description": "Vision transformers for classification, detection, segmentation, and super-resolution",
-            "url": settings.HUGGINGFACE_SERVICE_URL,
             "supported": False  # Not yet implemented
         }
     }

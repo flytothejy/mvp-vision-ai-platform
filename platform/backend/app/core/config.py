@@ -123,12 +123,6 @@ class Settings(BaseSettings):
         else:
             print(f"[CONFIG] Using shared User DB URL: {self.USER_DATABASE_URL}")
 
-    # Training Service URLs (DEPRECATED - now using subprocess execution)
-    # These URLs are kept for backward compatibility but are not actively used
-    TIMM_SERVICE_URL: str = "http://localhost:8001"  # UNUSED
-    # ULTRALYTICS_SERVICE_URL removed - using subprocess CLI execution
-    HUGGINGFACE_SERVICE_URL: str = "http://localhost:8003"  # UNUSED
-
     # Labeler Service (Phase 11.5: Dataset Service Integration)
     # Labeler Backend is the Single Source of Truth for dataset metadata
     # Platform queries Labeler API for dataset information
@@ -144,7 +138,6 @@ class Settings(BaseSettings):
     # Temporal Workflow Orchestration (Phase 12)
     TEMPORAL_HOST: str = "localhost:7233"
     TEMPORAL_NAMESPACE: str = "default"
-    TEMPORAL_TASK_QUEUE: str = "training-tasks"
 
     # Training Execution Mode (Phase 12: TrainingManager)
     TRAINING_MODE: str = "subprocess"  # Options: "subprocess" (Tier 0), "kubernetes" (Tier 1+)
@@ -155,21 +148,9 @@ class Settings(BaseSettings):
     CLEARML_FILES_HOST: str = "http://localhost:8081"
     CLEARML_API_ACCESS_KEY: str = ""  # Empty for open-source server
     CLEARML_API_SECRET_KEY: str = ""  # Empty for open-source server
-    CLEARML_DEFAULT_PROJECT: str = "Platform Training"
 
-    # Observability Configuration (Phase 13: Multi-tool support)
-    # Comma-separated list of observability backends to enable
-    # Options: "database", "clearml", "mlflow", "tensorboard"
-    # Example: "database,clearml" to use both Database and ClearML
-    OBSERVABILITY_BACKENDS: str = "database"  # Default: database only
-
-    # MLflow Configuration (optional, Phase 13)
+    # MLflow Configuration (Phase 13: Database-based charts)
     MLFLOW_TRACKING_URI: str = "http://localhost:5000"
-    MLFLOW_ENABLED: bool = False
-
-    # TensorBoard Configuration (optional, Phase 13)
-    TENSORBOARD_LOG_DIR: str = "./data/tensorboard"
-    TENSORBOARD_ENABLED: bool = False
 
     class Config:
         # Don't load .env file - use environment variables directly
