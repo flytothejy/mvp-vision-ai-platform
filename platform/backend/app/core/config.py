@@ -73,9 +73,9 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Convert relative paths to absolute paths based on mvp directory
-        # __file__ = mvp/backend/app/core/config.py
-        # parent x3 = mvp/backend -> mvp/
+        # Convert relative paths to absolute paths based on platform directory
+        # __file__ = platform/backend/app/core/config.py
+        # parent x3 = platform/backend -> platform/
         project_root = Path(__file__).parent.parent.parent.absolute()
 
         for attr in ['UPLOAD_DIR', 'OUTPUT_DIR', 'MODEL_DIR', 'LOG_DIR']:

@@ -19,23 +19,14 @@ Vision AI Training Platform은 개발자가 자연어로 대화하듯 Vision 모
 - 🎨 직관적인 UI/UX
 
 **현재 상태:**
-- ✅ **MVP 완료** - 자연어 기반 학습, 실시간 모니터링, Kubernetes 학습 실행
-- ⏳ **Platform 개발 진행 중** - 3-tier 환경 격리, 프로덕션 배포 준비
+- ✅ **Production-ready Platform** - Temporal orchestration, multi-backend observability, microservice architecture
+- 🚀 **Active Development** - Continuous improvements and feature additions
 
 ## 🏗️ 아키텍처
 
-### MVP 아키텍처 (완료)
+### Platform 아키텍처
 ```
-Frontend (Next.js) ←→ Backend (FastAPI) ←→ Training Service
-                          ↓                      ↓
-                    PostgreSQL           Kubernetes Jobs
-                          ↓                      ↓
-                     MLflow API          MLflow Tracking
-```
-
-### Platform 아키텍처 (개발 중)
-```
-3-Tier Isolated Environment:
+3-Tier Environment Support:
 ┌─────────────────────────────────────────────────┐
 │ Tier 1: Subprocess (Local Dev)                 │
 │   - Training in subprocess                     │
@@ -57,119 +48,107 @@ Frontend (Next.js) ←→ Backend (FastAPI) ←→ Training Service
 
 ## 🚀 Quick Start
 
-### MVP 개발 환경 시작
+> **처음 시작하시나요?** [Platform 시작 가이드](platform/README.md)를 참고하세요.
 
-> **처음 시작하시나요?** [MVP 시작 가이드](mvp/docs/guides/GETTING_STARTED.md)를 참고하세요.
-
-**Prerequisites:**
+### Prerequisites
 ```bash
 - Docker Desktop 4.26+
-- Kind (Kubernetes in Docker)
-- kubectl 1.28+
+- Python 3.11+
+- Node.js 20.x+
+- Poetry (Python package manager)
+- pnpm (Node package manager)
 ```
 
-**설치 (Windows):**
+### Installation (Windows)
 ```powershell
-# Kind 설치
-winget install -e --id Kubernetes.kind
+# Python & Poetry
+winget install Python.Python.3.11
+pip install poetry
 
-# kubectl 설치
-winget install -e --id Kubernetes.kubectl
+# Node.js & pnpm
+winget install OpenJS.NodeJS
+npm install -g pnpm
 ```
 
-**개발 환경 시작:**
-```powershell
-# 1. 레포지토리 클론
+### Development Environment
+
+**Tier 0: Docker Compose (Recommended for local dev)**
+```bash
+# 1. Clone repository
 git clone https://github.com/your-org/mvp-vision-ai-platform.git
-cd mvp-vision-ai-platform
+cd mvp-vision-ai-platform/platform
 
-# 2. MVP 개발 환경 시작
-cd mvp
-.\dev-start.ps1
+# 2. Start infrastructure
+cd infrastructure
+docker-compose up -d
 
-# 완료! 다음 서비스에 접근 가능:
-# - MLflow:     http://localhost:30500
-# - Grafana:    http://localhost:30030 (admin/admin)
-# - Prometheus: http://localhost:30090
-# - MinIO:      http://localhost:30901 (minioadmin/minioadmin)
+# 3. Initialize database
+cd ../backend
+python init_db.py
+
+# 4. Start backend
+poetry install
+poetry run uvicorn app.main:app --reload --port 8000
+
+# 5. Start frontend (new terminal)
+cd ../frontend
+pnpm install
+pnpm dev
+
+# Access:
+# - Frontend:  http://localhost:3000
+# - Backend:   http://localhost:8000
+# - ClearML:   http://localhost:8080
+# - MLflow:    http://localhost:5000
+# - Grafana:   http://localhost:3200
 ```
 
-[MVP 개발 워크플로우 →](mvp/docs/guides/DEV_WORKFLOW.md)
-
-### Platform 개발 환경
-
-Platform 개발은 3-tier 환경 격리 전략을 따릅니다:
-
-```powershell
-# Tier 1: Subprocess 모드 (가장 빠른 개발)
-python platform/backend/main.py --mode subprocess
-
-# Tier 2: Kind 클러스터 (Kubernetes 테스트)
-.\platform\scripts\kind-setup.ps1
-
-# Tier 3: Production (AWS/GCP)
-# See platform/docs/deployment/
-```
-
-[3-Tier 개발 가이드 →](platform/docs/development/3_TIER_DEVELOPMENT.md)
+[Full Development Guide →](platform/README.md)
 
 ## 📦 프로젝트 구조
 
 ```
 mvp-vision-ai-platform/
-├── mvp/                      # ✅ MVP 구현 (완료, 유지 모드)
-│   ├── backend/              # FastAPI backend
-│   ├── frontend/             # Next.js frontend
-│   ├── training/             # Training scripts (timm, ultralytics)
-│   ├── infrastructure/       # Docker Compose, K8s manifests
-│   ├── scripts/              # Dev scripts (dev-*.ps1)
-│   └── docs/                 # MVP 문서
+├── platform/                 # ✅ Production Platform (Active Development)
+│   ├── backend/              # FastAPI backend with Temporal orchestration
+│   ├── frontend/             # Next.js 14 frontend
+│   ├── trainers/             # Framework trainers (timm, ultralytics)
+│   ├── infrastructure/       # Docker Compose, K8s configs
+│   ├── charts/               # Helm charts for K8s deployment
+│   └── docs/                 # Platform documentation
 │
-├── platform/                 # ⏳ Platform 구현 (개발 중)
-│   ├── backend/              # Platform backend (3-tier support)
-│   ├── training-services/    # Framework-specific services
-│   ├── infrastructure/       # Production K8s, Terraform
-│   └── docs/                 # Platform 설계 문서
+├── docs/                     # Project-wide documentation
+│   ├── todo/                 # Implementation tracking
+│   ├── architecture/         # System design docs
+│   ├── planning/             # Feature plans
+│   └── CONVERSATION_LOG.md   # Development history
 │
-├── docs/                     # 프로젝트 공용 문서
-│   └── CONVERSATION_LOG.md   # 개발 히스토리
-│
-└── README.md                 # 현재 파일
+├── infrastructure/           # Shared infrastructure configs
+└── README.md                 # This file
 ```
 
 ## 🛠️ 기술 스택
 
-**MVP Stack:**
+**Core Technologies:**
 - Frontend: Next.js 14, React 18, TailwindCSS, Zustand
-- Backend: FastAPI, Python 3.11, PostgreSQL, SQLite
+- Backend: FastAPI, Python 3.11, PostgreSQL
 - Training: PyTorch, timm, Ultralytics YOLO
-- Monitoring: MLflow, Prometheus, Grafana
-- Infrastructure: Docker Compose, Kind (Kubernetes)
+- Orchestration: Temporal Workflow Engine
+- Storage: PostgreSQL, Redis, MinIO/S3/R2
+- Observability: ClearML, MLflow, Database (multi-backend adapter pattern)
+- Monitoring: Prometheus, Grafana
+- Infrastructure: Docker Compose, Kubernetes, Helm
 
-**Platform Stack (추가):**
-- Framework Services: timm-service, ultralytics-service, huggingface-service
-- Storage: S3/R2, MinIO (all tiers)
-- Orchestration: Temporal (production-ready)
-- Observability: ClearML, MLflow, Weights & Biases (multi-backend support)
-- Deployment: Terraform, AWS/GCP Kubernetes
-
-[전체 기술 스택 →](platform/docs/architecture/BACKEND_DESIGN.md)
+[Full Tech Stack Details →](platform/README.md)
 
 ## 📖 문서
 
-### MVP 문서 (완료)
-- [MVP 문서 인덱스](mvp/docs/README.md)
-- [시작 가이드](mvp/docs/guides/GETTING_STARTED.md)
-- [개발 워크플로우](mvp/docs/guides/DEV_WORKFLOW.md)
-- [MVP 아키텍처](mvp/docs/architecture/)
-- [LLM 통합](mvp/docs/llm/)
-
-### Platform 문서 (개발 중)
-- [Platform 문서 인덱스](platform/docs/README.md)
-- [Platform 아키텍처](platform/docs/architecture/)
-- [3-Tier 개발](platform/docs/development/3_TIER_DEVELOPMENT.md)
-- [에러 핸들링](platform/docs/architecture/ERROR_HANDLING_DESIGN.md)
-- [운영 가이드](platform/docs/architecture/OPERATIONS_RUNBOOK.md)
+### Platform Documentation
+- [Platform README](platform/README.md) - Overview and quick start
+- [Backend Guide](platform/backend/README.md) - Backend development
+- [Implementation Tracking](docs/todo/IMPLEMENTATION_TO_DO_LIST.md) - Progress tracking
+- [Architecture](platform/docs/architecture/) - System design
+- [Development Guides](platform/docs/development/) - Development workflows
 - [설계 리뷰](platform/docs/reviews/)
 
 ### 공용 문서

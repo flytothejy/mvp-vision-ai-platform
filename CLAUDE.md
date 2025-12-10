@@ -9,8 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Current Stage:** Production Implementation (Started 2025-11-10)
 
 **Project Structure:**
-- **`mvp/`**: Prototype implementation (reference only, not actively developed)
-- **`platform/`**: Production-ready implementation with Temporal orchestration, complete observability, and cloud-agnostic design
+- **`platform/`**: Production-ready implementation with Temporal orchestration, complete observability, and cloud-agnostic design (ACTIVE DEVELOPMENT)
 
 **Key Concept:** Natural language → LLM Intent Parser → Training Config → Temporal Workflow → Kubernetes Training Pod
 
@@ -256,9 +255,9 @@ See API_SPECIFICATION.md:106-187 for request/response examples.
 
 ## Development Commands
 
-**Active Development:** Use `platform/` for all new work. The `mvp/` folder is maintained for reference only.
+**Active Development:** `platform/` is the only active codebase.
 
-### Platform (Production Implementation)
+### Platform Development
 
 ```bash
 # Backend
@@ -280,11 +279,10 @@ cd platform/trainers/ultralytics
 docker build -t trainer-ultralytics:latest .
 ```
 
-### MVP (Legacy - Reference Only)
-
 ### Infrastructure (Docker Compose)
 ```bash
-# Start PostgreSQL, MongoDB, Redis, MinIO
+# Start infrastructure services
+cd platform/infrastructure
 docker-compose up -d
 
 # Check status
@@ -294,60 +292,14 @@ docker-compose ps
 docker-compose down
 ```
 
-### Frontend
-```bash
-cd frontend
-pnpm install        # Install dependencies
-pnpm dev            # Dev server (http://localhost:3000)
-pnpm build          # Production build
-pnpm lint           # ESLint
-pnpm type-check     # TypeScript validation
-pnpm test           # Jest + React Testing Library
-pnpm test:e2e       # Playwright E2E tests
-```
-
-### Backend Services
-Each service runs on a different port (8001-8006):
-
-```bash
-cd backend/intent-parser
-poetry install
-poetry run uvicorn app.main:app --reload --port 8001
-
-# Similarly for other services:
-# orchestrator:     8002
-# model-registry:   8003
-# data-service:     8004
-# vm-controller:    8005
-# telemetry:        8006
-```
-
-### Testing
-```bash
-# Frontend
-cd frontend && pnpm test
-cd frontend && pnpm test:e2e
-
-# Backend (each service)
-cd backend/intent-parser
-poetry run pytest tests/unit -v           # Unit tests
-poetry run pytest tests/integration -v    # Integration tests
-poetry run pytest --cov=app tests/        # Coverage report
-
-# Run specific test
-poetry run pytest tests/unit/test_parser.py::test_parse_classification -v
-```
-
 ### Database
 ```bash
-# PostgreSQL migrations (Alembic)
-cd backend/orchestrator
-poetry run alembic upgrade head      # Apply migrations
-poetry run alembic downgrade -1      # Rollback one migration
-poetry run alembic revision -m "..."  # Create new migration
+# Initialize databases
+cd platform/backend
+python init_db.py
 
-# MongoDB index setup
-python scripts/init_mongodb.py
+# Access PostgreSQL
+docker exec -it platform-postgres psql -U admin -d platform
 ```
 
 ### Temporal
@@ -695,9 +647,9 @@ Automatically analyzes code changes and creates a well-formatted git commit.
 
 **Example output:**
 ```bash
-# Analyzes changes to mvp/backend/app/main.py
+# Analyzes changes to platform/backend/app/api/chat.py
 # Creates commit:
-feat(backend): add FastAPI application structure
+feat(backend): add chat capabilities endpoint
 
 Create main FastAPI app with health check endpoint and CORS middleware.
 Add configuration management with pydantic-settings.
