@@ -11,7 +11,8 @@ from app.core.security import (
     get_password_hash,
     create_access_token,
     create_refresh_token,
-    decode_token
+    decode_token,
+    create_service_token
 )
 from app.db.database import get_user_db
 from app.db import models
@@ -472,5 +473,44 @@ def reset_password(
     return {
         "message": "Password has been reset successfully",
         "detail": "You can now login with your new password"
+    }
+
+
+@router.post("/labeler-token")
+def get_labeler_token(
+    current_user: models.User = Depends(get_current_user)
+):
+    """
+    Generate a service JWT token for SSO to Labeler service (Phase 11.5.6).
+
+    This endpoint is used when the frontend redirects users from Platform
+    to Labeler for dataset management. The token is short-lived (5 minutes)
+    and contains user identity information for automatic login.
+
+    Args:
+        current_user: Authenticated user from Platform
+
+    Returns:
+        dict: Contains service_token for SSO to Labeler
+
+    Example:
+        Frontend flow:
+        1. User clicks "데이터셋" in Platform sidebar
+        2. Frontend calls /api/v1/auth/labeler-token
+        3. Frontend redirects to: {LABELER_URL}/sso?token={service_token}
+        4. Labeler validates token and creates user session
+    """
+    # Create service token with user information
+    service_token = create_service_token({
+        "user_id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "system_role": current_user.system_role,
+        "badge_color": current_user.badge_color
+    })
+
+    return {
+        "service_token": service_token,
+        "expires_in": 300  # 5 minutes in seconds
     }
 
