@@ -44,7 +44,7 @@ Platform에서 "데이터셋" 버튼을 클릭하면 Labeler로 자동 리다이
 │  1. User clicks "데이터셋"                                       │
 │  2. POST /api/v1/auth/labeler-token (with Bearer token)         │
 │  3. Receive service_token (expires in 5min)                      │
-│  4. window.location.href = "http://localhost:8011/sso?token=xxx"│
+│  4. window.location.href = "http://localhost:8011/api/v1/auth/sso?token=xxx"│
 └─────────────────────────────────────────────────────────────────┘
                               ↓
                     Service JWT (5min)
@@ -52,7 +52,7 @@ Platform에서 "데이터셋" 버튼을 클릭하면 Labeler로 자동 리다이
 ┌─────────────────────────────────────────────────────────────────┐
 │                Labeler Backend (port 8011)                       │
 │                                                                   │
-│  5. GET /sso?token=xxx                                           │
+│  5. GET /api/v1/auth/sso?token=xxx                                           │
 │  6. Decode & validate service JWT (SERVICE_JWT_SECRET)           │
 │  7. Extract user info (user_id, email, full_name, role, etc)    │
 │  8. Find or create user in Shared User DB                       │
@@ -441,7 +441,7 @@ curl -X POST http://localhost:8001/api/v1/auth/labeler-token \
 # Response: {"service_token": "eyJ...", "expires_in": 300}
 
 # 3. Labeler SSO 엔드포인트 테스트
-curl -i -X GET "http://localhost:8011/sso?token=eyJ..."
+curl -i -X GET "http://localhost:8011/api/v1/auth/sso?token=eyJ..."
 
 # Expected: HTTP 303 Redirect to /datasets
 ```
@@ -467,7 +467,7 @@ service_token = token_resp.json()["service_token"]
 
 # 3. Labeler SSO
 sso_resp = requests.get(
-    f"http://localhost:8011/sso?token={service_token}",
+    f"http://localhost:8011/api/v1/auth/sso?token={service_token}",
     allow_redirects=False
 )
 
@@ -541,12 +541,12 @@ app.add_middleware(
 
 ### 문제 5: 리다이렉트 루프
 
-**원인**: /sso 엔드포인트가 다시 /sso로 리다이렉트
+**원인**: /api/v1/auth/sso 엔드포인트가 다시 /api/v1/auth/sso로 리다이렉트
 
 **해결**:
 ```python
 # BAD
-return RedirectResponse(url="/sso?token=xxx")  # 무한 루프!
+return RedirectResponse(url="/api/v1/auth/sso?token=xxx")  # 무한 루프!
 
 # GOOD
 return RedirectResponse(url="/datasets")
@@ -569,7 +569,7 @@ SSO 통합 구현 완료 전 확인:
 - [ ] `SERVICE_JWT_SECRET` 환경 변수 설정 (Platform과 동일)
 - [ ] `USER_DATABASE_URL` 환경 변수 설정 (Shared DB)
 - [ ] `decode_service_token()` 함수 구현
-- [ ] `GET /sso?token=xxx` 엔드포인트 구현
+- [ ] `GET /api/v1/auth/sso?token=xxx` 엔드포인트 구현
 - [ ] User 생성/업데이트 로직 구현
 - [ ] Session 생성 (cookie 또는 JWT)
 - [ ] `/datasets` 페이지로 리다이렉트

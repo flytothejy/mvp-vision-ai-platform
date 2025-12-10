@@ -277,8 +277,8 @@ export default function Home() {
       const data = await response.json()
       const labelerUrl = process.env.NEXT_PUBLIC_LABELER_URL || 'http://localhost:8011'
 
-      // Redirect to Labeler with service token
-      window.location.href = `${labelerUrl}/sso?token=${data.service_token}`
+      // Redirect to Labeler with service token (full API path)
+      window.location.href = `${labelerUrl}/api/v1/auth/sso?token=${data.service_token}`
     } catch (error) {
       console.error('Failed to redirect to Labeler:', error)
     }
