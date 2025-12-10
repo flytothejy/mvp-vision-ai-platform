@@ -39,25 +39,31 @@ Platform에서 "데이터셋" 버튼을 클릭하면 Labeler로 자동 리다이
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Platform (port 8001)                        │
+│                Platform Frontend (port 3000)                     │
 │                                                                   │
 │  1. User clicks "데이터셋"                                       │
 │  2. POST /api/v1/auth/labeler-token (with Bearer token)         │
 │  3. Receive service_token (expires in 5min)                      │
-│  4. window.location.href = "labeler/sso?token=xxx"              │
+│  4. window.location.href = "http://localhost:8011/sso?token=xxx"│
 └─────────────────────────────────────────────────────────────────┘
                               ↓
                     Service JWT (5min)
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Labeler (port 8011)                         │
+│                Labeler Backend (port 8011)                       │
 │                                                                   │
 │  5. GET /sso?token=xxx                                           │
 │  6. Decode & validate service JWT (SERVICE_JWT_SECRET)           │
 │  7. Extract user info (user_id, email, full_name, role, etc)    │
 │  8. Find or create user in Shared User DB                       │
-│  9. Create user session (set-cookie or return JWT)              │
-│ 10. Redirect to /datasets                                        │
+│  9. Create user session (HTTP-only cookie)                      │
+│ 10. RedirectResponse("http://localhost:3010/datasets")          │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                Labeler Frontend (port 3010)                      │
+│                                                                   │
+│ 11. /datasets page (auto-authenticated via cookie)              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
