@@ -172,12 +172,13 @@ class TrainerSDK:
         Dataset Caching (Phase 12.9):
         - SNAPSHOT_ID: Dataset snapshot ID (for cache key)
         - DATASET_VERSION_HASH: Dataset version hash (for cache verification)
+        - DATASET_CACHE_DIR: Shared dataset cache directory (default: /tmp/datasets)
+        - DATASET_CACHE_MAX_GB: Max cache size in GB (default: 50)
     """
 
-    # Dataset caching configuration (Phase 12.9)
-    SHARED_DATASET_CACHE = Path("/tmp/datasets")
-    CACHE_MAX_SIZE_GB = 50
-    CACHE_METADATA_FILE = SHARED_DATASET_CACHE / ".cache_metadata.json"
+    # Dataset caching defaults (can be overridden by environment variables)
+    DEFAULT_DATASET_CACHE_DIR = "/tmp/datasets"
+    DEFAULT_CACHE_MAX_SIZE_GB = 50
 
     def __init__(self):
         """Initialize SDK from environment variables"""
@@ -201,6 +202,14 @@ class TrainerSDK:
 
         # Initialize storage clients
         self._init_storage_clients()
+
+        # Initialize dataset cache configuration (Phase 12.9)
+        # DATASET_CACHE_DIR: PVC mount path for shared cache (e.g., /data/datasets)
+        # Falls back to /tmp/datasets for local development
+        cache_dir = os.getenv('DATASET_CACHE_DIR', self.DEFAULT_DATASET_CACHE_DIR)
+        self.SHARED_DATASET_CACHE = Path(cache_dir)
+        self.CACHE_MAX_SIZE_GB = int(os.getenv('DATASET_CACHE_MAX_GB', self.DEFAULT_CACHE_MAX_SIZE_GB))
+        self.CACHE_METADATA_FILE = self.SHARED_DATASET_CACHE / ".cache_metadata.json"
 
         # Initialize log buffer
         self._log_buffer: List[Dict[str, Any]] = []

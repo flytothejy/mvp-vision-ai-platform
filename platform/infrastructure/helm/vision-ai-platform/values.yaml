@@ -17,12 +17,24 @@ backend:
     pullPolicy: IfNotPresent
     tag: "latest"
 
+  # Override container command and args
+  # Example:
+  #   command: ["python", "-m", "uvicorn"]
+  #   args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+  command: []
+  args: []
+
   imagePullSecrets: []
 
   serviceAccount:
     create: true
     annotations: {}
     name: ""
+
+  # RBAC for Backend to manage training jobs in training namespace
+  # Required when TRAINING_MODE=kubernetes
+  rbac:
+    create: true
 
   podAnnotations: {}
   podSecurityContext: {}
@@ -35,7 +47,9 @@ backend:
   service:
     type: ClusterIP
     port: 8000
+    targetPort: 8000
     mlflowPort: 5000
+    mlflowTargetPort: 5000
 
   ingress:
     enabled: false
@@ -146,6 +160,13 @@ frontend:
     pullPolicy: IfNotPresent
     tag: "latest"
 
+  # Override container command and args
+  # Example:
+  #   command: ["node"]
+  #   args: ["server.js"]
+  command: []
+  args: []
+
   imagePullSecrets: []
 
   serviceAccount:
@@ -165,11 +186,11 @@ frontend:
     capabilities:
       drop:
         - ALL
-    readOnlyRootFilesystem: true
 
   service:
     type: ClusterIP
     port: 3000
+    targetPort: 3000
 
   ingress:
     enabled: true
@@ -207,14 +228,6 @@ frontend:
     NEXT_PUBLIC_API_URL: "http://backend:8000/api/v1"
     NEXT_PUBLIC_WS_URL: "ws://backend:8000/ws"
     NEXT_PUBLIC_ENVIRONMENT: "production"
-
-  # Health check configuration
-  healthCheck:
-    path: /api/health
-    initialDelaySeconds: 10
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
 
 # =============================================================================
 # Training Infrastructure Configuration
@@ -268,23 +281,33 @@ training:
         operator: "Exists"
         effect: "NoSchedule"
 
-  # Storage configuration
+  # Storage configuration (PVC-based caching for training jobs)
   storage:
+    # Dataset cache: Stores downloaded datasets to avoid re-downloading from S3
+    # RWX PVC recommended for multi-job concurrent access
     datasets:
       enabled: false
-      pvcName: datasets-pvc
+      create: true  # Create PVC via Helm (set false to use existing PVC)
+      pvcName: datasets-cache-pvc
+      storageClass: ""  # Empty = default StorageClass, or specify: nfs-client, cephfs, etc.
+      size: 100Gi
+      accessModes:
+        - ReadWriteMany  # RWX for multi-job access
       mountPath: /data/datasets
-      readOnly: true
-    outputs:
+      readOnly: false  # Must be false for cache writes
+      cacheMaxSizeGB: 100  # Max cache size in GB (LRU eviction)
+
+    # Models cache: Stores pre-trained model weights (HuggingFace, PyTorch, YOLO, etc.)
+    # Shared across jobs to avoid re-downloading from model hubs
+    modelsCache:
       enabled: false
-      pvcName: training-outputs-pvc
-      mountPath: /data/outputs
-      readOnly: false
-    checkpoints:
-      enabled: false
-      pvcName: checkpoints-pvc
-      mountPath: /data/checkpoints
-      readOnly: false
+      create: true
+      pvcName: models-cache-pvc
+      storageClass: ""
+      size: 50Gi
+      accessModes:
+        - ReadWriteMany
+      mountPath: /data/models
 
   # S3/MinIO configuration
   s3:
@@ -322,6 +345,8 @@ training:
         memory:
           request: 16Gi
           limit: 32Gi
+      # When modelsCache is enabled, HF_HOME/TRANSFORMERS_CACHE are set via _defaults
+      # pointing to shared PVC. The values below are fallback for emptyDir cache.
       extra_env:
         - name: HF_HOME
           value: /tmp/huggingface

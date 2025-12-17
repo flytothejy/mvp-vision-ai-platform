@@ -34,6 +34,14 @@ spec:
             {{- toYaml .Values.frontend.securityContext | nindent 12 }}
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          {{- with .Values.frontend.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.frontend.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 3000
@@ -41,33 +49,13 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "vision-ai.frontend.fullname" . }}-config
-          livenessProbe:
-            httpGet:
-              path: {{ .Values.frontend.healthCheck.path }}
-              port: http
-            initialDelaySeconds: {{ .Values.frontend.healthCheck.initialDelaySeconds }}
-            periodSeconds: {{ .Values.frontend.healthCheck.periodSeconds }}
-            timeoutSeconds: {{ .Values.frontend.healthCheck.timeoutSeconds }}
-            failureThreshold: {{ .Values.frontend.healthCheck.failureThreshold }}
-          readinessProbe:
-            httpGet:
-              path: {{ .Values.frontend.healthCheck.path }}
-              port: http
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 3
-            failureThreshold: 3
           resources:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            - name: next-cache
-              mountPath: /app/.next/cache
       volumes:
         - name: tmp
-          emptyDir: {}
-        - name: next-cache
           emptyDir: {}
       {{- with .Values.frontend.nodeSelector }}
       nodeSelector:

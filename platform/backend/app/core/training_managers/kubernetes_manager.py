@@ -78,12 +78,14 @@ spec:
           env:
             {% for key, value in env_vars.items() %}
             - name: "{{ key }}"
-              value: "{{ value }}"
+              value: {{ value | tojson }}
             {% endfor %}
             {% for env in extra_env %}
             - name: "{{ env.name }}"
               {% if env.value is defined %}
-              value: "{{ env.value }}"
+              value: {{ env.value | tojson }}
+              {% elif env.valueFrom is defined %}
+              valueFrom: {{ env.valueFrom | tojson }}
               {% endif %}
             {% endfor %}
           resources:
@@ -107,6 +109,9 @@ spec:
             {% for vm in extra_volume_mounts %}
             - name: "{{ vm.name }}"
               mountPath: "{{ vm.mountPath }}"
+              {% if vm.readOnly is defined %}
+              readOnly: {{ vm.readOnly | lower }}
+              {% endif %}
             {% endfor %}
       volumes:
         - name: tmp
@@ -120,6 +125,18 @@ spec:
             {% if vol.emptyDir.sizeLimit is defined %}
             sizeLimit: "{{ vol.emptyDir.sizeLimit }}"
             {% endif %}
+          {% elif vol.persistentVolumeClaim is defined %}
+          persistentVolumeClaim:
+            claimName: "{{ vol.persistentVolumeClaim.claimName }}"
+            {% if vol.persistentVolumeClaim.readOnly is defined %}
+            readOnly: {{ vol.persistentVolumeClaim.readOnly | lower }}
+            {% endif %}
+          {% elif vol.configMap is defined %}
+          configMap:
+            name: "{{ vol.configMap.name }}"
+          {% elif vol.secret is defined %}
+          secret:
+            secretName: "{{ vol.secret.secretName }}"
           {% endif %}
         {% endfor %}
       tolerations:

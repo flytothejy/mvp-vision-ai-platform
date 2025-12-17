@@ -2,7 +2,9 @@
 # Build: docker build -t vision-backend:latest .
 # Run: docker run -p 8000:8000 --env-file .env vision-backend:latest
 
-FROM python:3.11-slim AS builder
+ARG REGISTRY_MIRROR=
+
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -26,7 +28,7 @@ RUN uv pip install --system --no-cache -r pyproject.toml
 # ============================================
 # Production Stage
 # ============================================
-FROM python:3.11-slim AS production
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS production
 
 WORKDIR /app
 

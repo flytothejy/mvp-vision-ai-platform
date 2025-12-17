@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+
+# Build output
+.next
+
+# Development files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test
+coverage
+
+# Environment (use build args instead)
+.env*.local

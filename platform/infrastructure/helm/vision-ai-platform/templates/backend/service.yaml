@@ -9,11 +9,11 @@ spec:
   type: {{ .Values.backend.service.type }}
   ports:
     - port: {{ .Values.backend.service.port }}
-      targetPort: http
+      targetPort: {{ .Values.backend.service.targetPort }}
       protocol: TCP
       name: http
     - port: {{ .Values.backend.service.mlflowPort }}
-      targetPort: mlflow
+      targetPort: {{ .Values.backend.service.mlflowTargetPort }}
       protocol: TCP
       name: mlflow
   selector:

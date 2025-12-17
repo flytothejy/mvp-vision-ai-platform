@@ -1,15 +1,23 @@
-# Docker Image Build & Push
+# Docker Image Build & Push + ArgoCD Sync
 #
-# This workflow builds and pushes Docker images with CalVer tagging.
+# This workflow builds Docker images with CalVer tagging and syncs to ArgoCD.
 # Designed for internal Git mirror with scheduled sync from GitHub.
 #
 # CalVer Format: YYYY.MM.DD-<short-sha>
 # Example: 2025.12.15-abc1234
 #
+# Flow:
+#   1. Detect changed components (backend, frontend, trainers)
+#   2. Build & push Docker images with CalVer tag
+#   3. Update ArgoCD Application with new image tags
+#   4. Trigger ArgoCD sync
+#
 # Required Secrets:
 #   DOCKER_REGISTRY: Docker registry URL (e.g., your-company.jfrog.io)
 #   DOCKER_USERNAME: Registry username
 #   DOCKER_PASSWORD: Registry password or token
+#   ARGOCD_SERVER: ArgoCD server URL (e.g., argocd.your-company.com)
+#   ARGOCD_AUTH_TOKEN: ArgoCD auth token (Settings → Accounts → Generate New)
 #
 # Required Variables:
 #   ENABLE_DOCKER_BUILD: Set to "true" to enable (internal mirror only)
@@ -18,7 +26,7 @@
 #   - Push to main/master branch (source changes)
 #   - Manual dispatch with component selection
 
-name: Docker Build
+name: Docker Build & Deploy
 
 on:
   push:
@@ -33,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       components:
-        description: 'Components to build (comma-separated: backend,frontend,trainers)'
+        description: 'Components to build (all, or comma-separated: backend,frontend,trainers)'
         required: false
         default: 'all'
         type: string
@@ -41,9 +49,15 @@ on:
         description: 'Override image tag (leave empty for CalVer)'
         required: false
         type: string
+      skip_sync:
+        description: 'Skip ArgoCD sync after build'
+        required: false
+        type: boolean
+        default: false
 
 env:
   REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
+  ARGOCD_APP_NAME: vision-ai-platform
 
 jobs:
   # Guard: Only run in internal mirror repository
@@ -76,42 +90,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
       - name: Detect changes
         id: changes
         run: |
+          # For push events: build all (paths filter already ensures relevant changes)
+          # For workflow_dispatch: use input value
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             COMPONENTS="${{ github.event.inputs.components }}"
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "backend"; then
-              echo "backend=true" >> $GITHUB_OUTPUT
-            else
-              echo "backend=false" >> $GITHUB_OUTPUT
-            fi
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "frontend"; then
-              echo "frontend=true" >> $GITHUB_OUTPUT
-            else
-              echo "frontend=false" >> $GITHUB_OUTPUT
-            fi
-            if [ "$COMPONENTS" = "all" ] || echo "$COMPONENTS" | grep -q "trainers"; then
-              echo "trainers=true" >> $GITHUB_OUTPUT
-            else
-              echo "trainers=false" >> $GITHUB_OUTPUT
-            fi
           else
-            # Check git diff for changes
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/backend/"; then
+            # Push event - paths filter ensures platform/* changed, build all
+            COMPONENTS="all"
+          fi
+
+          echo "Components to build: $COMPONENTS"
+
+          if [ "$COMPONENTS" = "all" ] || [ -z "$COMPONENTS" ]; then
+            echo "backend=true" >> $GITHUB_OUTPUT
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "trainers=true" >> $GITHUB_OUTPUT
+          else
+            # Parse comma-separated list
+            if echo "$COMPONENTS" | grep -q "backend"; then
               echo "backend=true" >> $GITHUB_OUTPUT
             else
               echo "backend=false" >> $GITHUB_OUTPUT
             fi
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/frontend/"; then
+            if echo "$COMPONENTS" | grep -q "frontend"; then
               echo "frontend=true" >> $GITHUB_OUTPUT
             else
               echo "frontend=false" >> $GITHUB_OUTPUT
             fi
-            if git diff --name-only HEAD~1 HEAD | grep -q "^platform/trainers/"; then
+            if echo "$COMPONENTS" | grep -q "trainers"; then
               echo "trainers=true" >> $GITHUB_OUTPUT
             else
               echo "trainers=false" >> $GITHUB_OUTPUT
@@ -154,8 +164,10 @@ jobs:
 
   # Build Backend
   build-backend:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.backend == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -188,8 +200,10 @@ jobs:
 
   # Build Frontend
   build-frontend:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.frontend == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.frontend == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -222,8 +236,10 @@ jobs:
 
   # Build Trainers (matrix)
   build-trainers:
-    needs: [detect-changes, generate-tag]
-    if: needs.detect-changes.outputs.trainers == 'true'
+    needs: [guard, detect-changes, generate-tag]
+    if: |
+      needs.guard.outputs.should_run == 'true' &&
+      needs.detect-changes.outputs.trainers == 'true'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -271,21 +287,81 @@ jobs:
             BUILD_DATE=${{ needs.generate-tag.outputs.date }}
             VERSION=${{ needs.generate-tag.outputs.tag }}
 
+  # ArgoCD Sync - Update image tags and sync
+  argocd-sync:
+    needs: [guard, generate-tag, detect-changes, build-backend, build-frontend, build-trainers]
+    if: |
+      always() &&
+      needs.guard.outputs.should_run == 'true' &&
+      needs.generate-tag.result == 'success' &&
+      github.event.inputs.skip_sync != 'true' &&
+      (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped') &&
+      (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped') &&
+      (needs.build-trainers.result == 'success' || needs.build-trainers.result == 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL -o argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          chmod +x argocd
+          sudo mv argocd /usr/local/bin/
+
+      - name: ArgoCD Login
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --auth-token ${{ secrets.ARGOCD_AUTH_TOKEN }} \
+            --grpc-web \
+            --insecure
+
+      - name: Update Backend Image Tag
+        if: needs.detect-changes.outputs.backend == 'true' && needs.build-backend.result == 'success'
+        run: |
+          argocd app set ${{ env.ARGOCD_APP_NAME }} \
+            --helm-set backend.image.tag=${{ needs.generate-tag.outputs.tag }}
+          echo "Updated backend image tag to ${{ needs.generate-tag.outputs.tag }}"
+
+      - name: Update Frontend Image Tag
+        if: needs.detect-changes.outputs.frontend == 'true' && needs.build-frontend.result == 'success'
+        run: |
+          argocd app set ${{ env.ARGOCD_APP_NAME }} \
+            --helm-set frontend.image.tag=${{ needs.generate-tag.outputs.tag }}
+          echo "Updated frontend image tag to ${{ needs.generate-tag.outputs.tag }}"
+
+      - name: Update Trainer Image Tags
+        if: needs.detect-changes.outputs.trainers == 'true' && needs.build-trainers.result == 'success'
+        run: |
+          # Update default tag for all trainers
+          argocd app set ${{ env.ARGOCD_APP_NAME }} \
+            --helm-set training.registry.defaultTag=${{ needs.generate-tag.outputs.tag }}
+          echo "Updated trainer default tag to ${{ needs.generate-tag.outputs.tag }}"
+
+      - name: Sync ArgoCD Application
+        run: |
+          echo "Triggering ArgoCD sync..."
+          argocd app sync ${{ env.ARGOCD_APP_NAME }} --prune --timeout 300
+          echo "Sync completed"
+
+      - name: Wait for Rollout
+        run: |
+          echo "Waiting for application to be healthy..."
+          argocd app wait ${{ env.ARGOCD_APP_NAME }} --timeout 600 --health
+          echo "Application is healthy"
+
   # Summary
   summary:
-    needs: [generate-tag, build-backend, build-frontend, build-trainers]
-    if: always() && needs.generate-tag.result == 'success'
+    needs: [guard, generate-tag, build-backend, build-frontend, build-trainers, argocd-sync]
+    if: |
+      always() &&
+      needs.guard.outputs.should_run == 'true' &&
+      needs.generate-tag.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Summary
         run: |
-          echo "## Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Docker Build & Deploy Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
-          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Tag | \`${{ needs.generate-tag.outputs.tag }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Registry | \`${{ env.REGISTRY }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Trigger | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "### Image Tag" >> $GITHUB_STEP_SUMMARY
+          echo "\`${{ needs.generate-tag.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Build Results" >> $GITHUB_STEP_SUMMARY
           echo "| Component | Status |" >> $GITHUB_STEP_SUMMARY
@@ -293,3 +369,13 @@ jobs:
           echo "| Backend | ${{ needs.build-backend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend | ${{ needs.build-frontend.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Trainers | ${{ needs.build-trainers.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ArgoCD Sync" >> $GITHUB_STEP_SUMMARY
+          echo "| Status | ${{ needs.argocd-sync.result || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Images" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/vision-ai-backend:${{ needs.generate-tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/vision-ai-frontend:${{ needs.generate-tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "${{ env.REGISTRY }}/trainer-*:${{ needs.generate-tag.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

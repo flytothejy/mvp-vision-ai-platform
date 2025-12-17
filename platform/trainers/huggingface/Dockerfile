@@ -5,10 +5,12 @@
 # For GPU support, use NVIDIA base image:
 # docker build -f Dockerfile.gpu -t trainer-huggingface:gpu .
 
+ARG REGISTRY_MIRROR=
+
 # ============================================
 # Builder Stage
 # ============================================
-FROM python:3.11-slim AS builder
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS builder
 
 WORKDIR /app
 
@@ -31,13 +33,13 @@ RUN uv pip install --system --no-cache ".[export]"
 # ============================================
 # Production Stage
 # ============================================
-FROM python:3.11-slim AS production
+FROM ${REGISTRY_MIRROR}python:3.11-slim AS production
 
 WORKDIR /app
 
 # Install runtime dependencies for OpenCV and image processing
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1-mesa-glx \
+    libgl1-mesa-dev \
     libglib2.0-0 \
     libsm6 \
     libxext6 \

@@ -9,6 +9,19 @@ data:
   # Auto-generated API_BASE_URL for training pod callbacks
   # Uses K8s FQDN for cross-namespace access: http://{service}.{namespace}.svc.cluster.local:{port}
   API_BASE_URL: {{ printf "http://%s.%s.svc.cluster.local:%d" (include "vision-ai.backend.fullname" .) .Release.Namespace (.Values.backend.service.port | int) | quote }}
+
+  # KubernetesTrainingManager configuration
+  {{- if .Values.training.enabled }}
+  K8S_TRAINING_NAMESPACE: {{ include "vision-ai.training.namespace" . | quote }}
+  JOB_TEMPLATES_CONFIGMAP: "training-job-templates"
+  # Registry configuration (used as fallback when ConfigMap unavailable)
+  DOCKER_REGISTRY: {{ .Values.training.registry.url | quote }}
+  TRAINER_IMAGE_TAG: {{ .Values.training.registry.defaultTag | quote }}
+  {{- if .Values.training.registry.pullSecret }}
+  IMAGE_PULL_SECRET: {{ .Values.training.registry.pullSecret | quote }}
+  {{- end }}
+  {{- end }}
+
   {{- range $key, $value := .Values.backend.env }}
   {{ $key }}: {{ $value | quote }}
   {{- end }}

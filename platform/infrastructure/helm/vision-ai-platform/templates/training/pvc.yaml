@@ -1,0 +1,56 @@
+{{- if .Values.training.enabled -}}
+# =============================================================================
+# Training Storage PVCs
+# =============================================================================
+# PVCs for shared storage across training jobs.
+# RWX (ReadWriteMany) access mode recommended for multi-job access.
+#
+# Usage:
+#   helm install ... \
+#     --set training.storage.datasets.enabled=true \
+#     --set training.storage.datasets.storageClass=nfs-client
+# =============================================================================
+
+{{- if and .Values.training.storage.datasets.enabled .Values.training.storage.datasets.create }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.training.storage.datasets.pvcName }}
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.training.labels" . | nindent 4 }}
+    storage-type: datasets-cache
+spec:
+  accessModes:
+    {{- toYaml .Values.training.storage.datasets.accessModes | nindent 4 }}
+  {{- if .Values.training.storage.datasets.storageClass }}
+  storageClassName: {{ .Values.training.storage.datasets.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.training.storage.datasets.size }}
+{{- end }}
+
+{{- if and .Values.training.storage.modelsCache.enabled .Values.training.storage.modelsCache.create }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.training.storage.modelsCache.pvcName }}
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.training.labels" . | nindent 4 }}
+    storage-type: models-cache
+spec:
+  accessModes:
+    {{- toYaml .Values.training.storage.modelsCache.accessModes | nindent 4 }}
+  {{- if .Values.training.storage.modelsCache.storageClass }}
+  storageClassName: {{ .Values.training.storage.modelsCache.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.training.storage.modelsCache.size }}
+{{- end }}
+
+{{- end }}

@@ -1,0 +1,63 @@
+{{- if and .Values.backend.enabled .Values.training.enabled .Values.backend.rbac.create -}}
+# =============================================================================
+# Backend RBAC for Training Job Management
+# =============================================================================
+# Backend (in app namespace) needs to create/manage K8s Jobs in training namespace.
+# This is required when TRAINING_MODE=kubernetes.
+#
+# Architecture:
+#   Backend Pod (app namespace) --[K8s API]--> Create Job (training namespace)
+#
+# The Role is created in training namespace, and RoleBinding connects
+# Backend ServiceAccount to this Role across namespaces.
+# =============================================================================
+
+---
+# Role in training namespace - allows managing training jobs
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "vision-ai.backend.fullname" . }}-job-manager
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.backend.labels" . | nindent 4 }}
+rules:
+  # Create and manage training jobs
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch"]
+  # Read pods for log access and status monitoring
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  # Read pod logs for debugging
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  # Read configmaps for job templates
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list"]
+  # Read secrets for storage credentials (if needed)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+
+---
+# RoleBinding - connects Backend SA (app namespace) to Role (training namespace)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "vision-ai.backend.fullname" . }}-job-manager-binding
+  namespace: {{ include "vision-ai.training.namespace" . }}
+  labels:
+    {{- include "vision-ai.backend.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "vision-ai.backend.fullname" . }}-job-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "vision-ai.backend.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

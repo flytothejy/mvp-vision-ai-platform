@@ -35,6 +35,14 @@ spec:
             {{- toYaml .Values.backend.securityContext | nindent 12 }}
           image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          {{- with .Values.backend.command }}
+          command:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.backend.args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8000
@@ -45,14 +53,6 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "vision-ai.backend.fullname" . }}-config
-          env:
-            {{- range .Values.backend.secretEnv }}
-            - name: {{ .name }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .secretName }}
-                  key: {{ .secretKey }}
-            {{- end }}
           livenessProbe:
             {{- toYaml .Values.backend.livenessProbe | nindent 12 }}
           readinessProbe:
